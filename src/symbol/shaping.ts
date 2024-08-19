@@ -75,6 +75,15 @@ export type TextJustify = 'left' | 'center' | 'right';
 const PUAbegin = 0xE000;
 const PUAend = 0xF8FF;
 
+const segmenter = ('Segmenter' in Intl) ? new Intl.Segmenter() : {
+    segment: (text: String) => {
+        return [...text].map((char, index) => ({
+            index,
+            segment: char,
+        }));
+    },
+};
+
 export class SectionOptions {
     // Text options
     scale: number;
@@ -130,7 +139,7 @@ export class TaggedString {
     }
 
     length(): number {
-        return [...this.text].length;
+        return Array.from(segmenter.segment(this.text)).length;
     }
 
     getSection(index: number): SectionOptions {
@@ -157,17 +166,17 @@ export class TaggedString {
 
     substring(start: number, end: number): TaggedString {
         const substring = new TaggedString();
-        substring.text = [...this.text].slice(start, end).join('');
+        substring.text = Array.from(segmenter.segment(this.text)).slice(start, end).map(s => s.segment).join('');
         substring.sectionIndex = this.sectionIndex.slice(start, end);
         substring.sections = this.sections;
         return substring;
     }
 
     /**
-     * Converts a UTF-16 character index to a UTF-16 code unit (JavaScript character index).
+     * Converts a grapheme cluster index to a UTF-16 code unit (JavaScript character index).
      */
     toCodeUnitIndex(unicodeIndex: number): number {
-        return [...this.text].slice(0, unicodeIndex).join('').length;
+        return Array.from(segmenter.segment(this.text)).slice(0, unicodeIndex).map(s => s.segment).join('').length;
     }
 
     toString(): string {
@@ -183,7 +192,7 @@ export class TaggedString {
         this.sections.push(SectionOptions.forText(section.scale, section.fontStack || defaultFontStack));
         const index = this.sections.length - 1;
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        for (const char of section.text) {
+        for (const char of segmenter.segment(section.text)) {
             this.sectionIndex.push(index);
         }
     }
@@ -235,7 +244,7 @@ function shapeText(
     text: Formatted,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     glyphPositions: {
@@ -278,7 +287,7 @@ function shapeText(
             taggedLine.text = line;
             taggedLine.sections = logicalInput.sections;
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            for (const char of line) {
+            for (const char of segmenter.segment(line)) {
                 taggedLine.sectionIndex.push(0);
             }
             lines.push(taggedLine);
@@ -290,11 +299,11 @@ function shapeText(
         // ICU operates on code units.
         lineBreaks = lineBreaks.map(index => logicalInput.toCodeUnitIndex(index));
 
-        // Convert character-based section index to be based on code units.
+        // Convert grapheme cluster–based section index to be based on code units.
         let i = 0;
         const sectionIndex = [];
-        for (const char of logicalInput.text) {
-            sectionIndex.push(...Array(char.length).fill(logicalInput.sectionIndex[i]));
+        for (const {segment} of segmenter.segment(logicalInput.text)) {
+            sectionIndex.push(...Array(segment.length).fill(logicalInput.sectionIndex[i]));
             i++;
         }
 
@@ -305,9 +314,9 @@ function shapeText(
             taggedLine.text = line[0];
             taggedLine.sections = logicalInput.sections;
             let elapsedChars = '';
-            for (const char of line[0]) {
+            for (const {segment} of segmenter.segment(line[0])) {
                 taggedLine.sectionIndex.push(line[1][elapsedChars.length]);
-                elapsedChars += char;
+                elapsedChars += segment;
             }
             lines.push(taggedLine);
         }
@@ -377,11 +386,11 @@ const breakableBefore: {
 };
 
 function getGlyphAdvance(
-    codePoint: number,
+    grapheme: string,
     section: SectionOptions,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     imagePositions: {[_: string]: ImagePosition},
@@ -390,7 +399,7 @@ function getGlyphAdvance(
 ): number {
     if (!section.imageName) {
         const positions = glyphMap[section.fontStack];
-        const glyph = positions && positions[codePoint];
+        const glyph = positions && positions[grapheme];
         if (!glyph) return 0;
         return glyph.metrics.advance * section.scale + spacing;
     } else {
@@ -405,7 +414,7 @@ function determineAverageLineWidth(logicalInput: TaggedString,
     maxWidth: number,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     imagePositions: {[_: string]: ImagePosition},
@@ -413,9 +422,9 @@ function determineAverageLineWidth(logicalInput: TaggedString,
     let totalWidth = 0;
 
     let index = 0;
-    for (const char of logicalInput.text) {
+	for (const {segment} of segmenter.segment(logicalInput.text)) {
         const section = logicalInput.getSection(index);
-        totalWidth += getGlyphAdvance(char.codePointAt(0), section, glyphMap, imagePositions, spacing, layoutTextSize);
+        totalWidth += getGlyphAdvance(segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
         index++;
     }
 
@@ -518,7 +527,7 @@ export function determineLineBreaks(
     maxWidth: number,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     imagePositions: {[_: string]: ImagePosition},
@@ -535,26 +544,28 @@ export function determineLineBreaks(
     let currentX = 0;
 
     let i = 0;
-    const chars = logicalInput.text[Symbol.iterator]();
+    const chars = segmenter.segment(logicalInput.text)[Symbol.iterator]();
     let char = chars.next();
-    const nextChars = logicalInput.text[Symbol.iterator]();
+    const nextChars = segmenter.segment(logicalInput.text)[Symbol.iterator]();
     nextChars.next();
     let nextChar = nextChars.next();
-    const nextNextChars = logicalInput.text[Symbol.iterator]();
+    const nextNextChars = segmenter.segment(logicalInput.text)[Symbol.iterator]();
     nextNextChars.next();
     nextNextChars.next();
     let nextNextChar = nextNextChars.next();
 
     while (!char.done) {
         const section = logicalInput.getSection(i);
-        const codePoint = char.value.codePointAt(0);
-        if (!whitespace[codePoint]) currentX += getGlyphAdvance(codePoint, section, glyphMap, imagePositions, spacing, layoutTextSize);
+        const segment = char.value.segment;
+		const codePoint = segment.codePointAt(0);
+        if (!whitespace[codePoint]) currentX += getGlyphAdvance(segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
 
         // Ideographic characters, spaces, and word-breaking punctuation that often appear without
         // surrounding spaces.
         if (!nextChar.done) {
             const ideographicBreak = charAllowsIdeographicBreaking(codePoint);
-            const nextCodePoint = nextChar.value.codePointAt(0);
+            const nextSegment = nextChar.value.segment;
+			const nextCodePoint = nextSegment.codePointAt(0);
             if (breakable[codePoint] || ideographicBreak || section.imageName || (!nextNextChar.done && breakableBefore[nextCodePoint])) {
 
                 potentialLineBreaks.push(
@@ -618,7 +629,7 @@ function getAnchorAlignment(anchor: SymbolAnchor) {
 function shapeLines(shaping: Shaping,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     glyphPositions: {
@@ -664,10 +675,10 @@ function shapeLines(shaping: Shaping,
         }
 
         let i = 0;
-        for (const char of line.text) {
+        for (const {segment} of segmenter.segment(line.text)) {
             const section = line.getSection(i);
             const sectionIndex = line.getSectionIndex(i);
-            const codePoint = char.codePointAt(0);
+            const codePoint = segment.codePointAt(0);
             let baselineOffset = 0.0;
             let metrics = null;
             let rect = null;
@@ -682,13 +693,13 @@ function shapeLines(shaping: Shaping,
 
             if (!section.imageName) {
                 const positions = glyphPositions[section.fontStack];
-                const glyphPosition = positions && positions[codePoint];
+                const glyphPosition = positions && positions[segment];
                 if (glyphPosition && glyphPosition.rect) {
                     rect = glyphPosition.rect;
                     metrics = glyphPosition.metrics;
                 } else {
                     const glyphs = glyphMap[section.fontStack];
-                    const glyph = glyphs && glyphs[codePoint];
+                    const glyph = glyphs && glyphs[segment];
                     if (!glyph) continue;
                     metrics = glyph.metrics;
                 }
@@ -731,11 +742,11 @@ function shapeLines(shaping: Shaping,
             }
 
             if (!vertical) {
-                positionedGlyphs.push({glyph: codePoint, imageName, x, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
+                positionedGlyphs.push({glyph: segment, imageName, x, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
                 x += metrics.advance * section.scale + spacing;
             } else {
                 shaping.verticalizable = true;
-                positionedGlyphs.push({glyph: codePoint, imageName, x, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
+                positionedGlyphs.push({glyph: segment, imageName, x, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
                 x += verticalAdvance * section.scale + spacing;
             }
 

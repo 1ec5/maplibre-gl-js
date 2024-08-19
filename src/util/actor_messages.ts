@@ -49,7 +49,7 @@ export type UpdateLayersParamaeters = {
 /**
  * Parameters needed to get the images
  */
-export type GetImagesParamerters = {
+export type GetImagesParameters = {
     icons: Array<string>;
     source: string;
     tileID: OverscaledTileID;
@@ -59,9 +59,9 @@ export type GetImagesParamerters = {
 /**
  * Parameters needed to get the glyphs
  */
-export type GetGlyphsParamerters = {
+export type GetGlyphsParameters = {
     type: string;
-    stacks: {[_: string]: Array<number>};
+    stacks: {[_: string]: Array<string>};
     source: string;
     tileID: OverscaledTileID;
 }
@@ -71,7 +71,7 @@ export type GetGlyphsParamerters = {
  */
 export type GetGlyphsResponse = {
     [stack: string]: {
-        [id: number]: StyleGlyph;
+        [grapheme: string]: StyleGlyph;
     };
 }
 
@@ -121,8 +121,8 @@ export type RequestResponseMessageMap = {
     [MessageType.getData]: [LoadGeoJSONParameters, GeoJSON.GeoJSON];
     [MessageType.loadTile]: [WorkerTileParameters, WorkerTileResult];
     [MessageType.reloadTile]: [WorkerTileParameters, WorkerTileResult];
-    [MessageType.getGlyphs]: [GetGlyphsParamerters, GetGlyphsResponse];
-    [MessageType.getImages]: [GetImagesParamerters, GetImagesResponse];
+    [MessageType.getGlyphs]: [GetGlyphsParameters, GetGlyphsResponse];
+    [MessageType.getImages]: [GetImagesParameters, GetImagesResponse];
     [MessageType.setImages]: [string[], void];
     [MessageType.setLayers]: [Array<LayerSpecification>, void];
     [MessageType.updateLayers]: [UpdateLayersParamaeters, void];
