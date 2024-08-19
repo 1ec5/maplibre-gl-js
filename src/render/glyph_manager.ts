@@ -1,7 +1,6 @@
 import {loadGlyphRange} from '../style/load_glyph_range';
 
 import TinySDF from '@mapbox/tiny-sdf';
-import {charAllowsIdeographicBreaking} from '../util/script_detection';
 import {AlphaImage} from '../util/image';
 
 import type {StyleGlyph} from '../style/style_glyph';
@@ -128,10 +127,8 @@ export class GlyphManager {
      * rendered remotely. For visual consistency within CJKV text, even relatively small CJKV and
      * other siniform code blocks prefer local rendering.
      */
-    _doesCharSupportLocalGlyph(id: number): boolean {
-        return !!this.localIdeographFontFamily &&
-            (/\p{Ideo}|\p{sc=Hang}|\p{sc=Hira}|\p{sc=Kana}/u.test(String.fromCodePoint(id)) ||
-             charAllowsIdeographicBreaking(id));
+    _doesCharSupportLocalGlyph(_id: number): boolean {
+        return true;
     }
 
     _tinySDF(entry: Entry, stack: string, grapheme: string): StyleGlyph {
