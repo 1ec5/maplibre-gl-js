@@ -4,7 +4,7 @@ import ONE_EM from './one_em';
 import type {ImagePosition} from '../render/image_atlas';
 import type {StyleGlyph} from '../style/style_glyph';
 import {verticalizePunctuation} from '../util/verticalize_punctuation';
-import {charIsWhitespace} from '../util/script_detection';
+import {charIsWhitespace, segmenter} from '../util/script_detection';
 import {codePointAllowsIdeographicBreaking} from '../util/unicode_properties.g';
 import {warnOnce} from '../util/util';
 
@@ -66,11 +66,11 @@ const breakableBefore: {
 };
 
 function getGlyphAdvance(
-    codePoint: number,
+    grapheme: string,
     section: SectionOptions,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     imagePositions: {[_: string]: ImagePosition},
@@ -79,7 +79,7 @@ function getGlyphAdvance(
 ): number {
     if ('fontStack' in section) {
         const positions = glyphMap[section.fontStack];
-        const glyph = positions && positions[codePoint];
+        const glyph = positions && positions[grapheme];
         if (!glyph) return 0;
         return glyph.metrics.advance * section.scale + spacing;
     } else {
@@ -199,7 +199,7 @@ export class TaggedString {
     }
 
     length(): number {
-        return [...this.text].length;
+        return Array.from(segmenter.segment(this.text)).length;
     }
 
     getSection(index: number): SectionOptions {
@@ -235,16 +235,16 @@ export class TaggedString {
     }
 
     substring(start: number, end: number): TaggedString {
-        const text = [...this.text].slice(start, end).join('');
+        const text = Array.from(segmenter.segment(this.text)).slice(start, end).map(s => s.segment).join('');
         const sectionIndex = this.sectionIndex.slice(start, end);
         return new TaggedString(text, this.sections, sectionIndex);
     }
 
     /**
-     * Converts a UTF-16 character index to a UTF-16 code unit (JavaScript character index).
+     * Converts a grapheme cluster index to a UTF-16 code unit (JavaScript character index).
      */
     toCodeUnitIndex(unicodeIndex: number): number {
-        return [...this.text].slice(0, unicodeIndex).join('').length;
+        return Array.from(segmenter.segment(this.text)).slice(0, unicodeIndex).map(s => s.segment).join('').length;
     }
 
     toString(): string {
@@ -282,7 +282,7 @@ export class TaggedString {
             fontStack: section.fontStack || defaultFontStack,
         } as TextSectionOptions);
         const index = this.sections.length - 1;
-        this.sectionIndex.push(...[...section.text].map(() => index));
+        this.sectionIndex.push(...[...segmenter.segment(section.text)].map(() => index));
     }
 
     addImageSection(section: FormattedSection) {
@@ -322,7 +322,7 @@ export class TaggedString {
         maxWidth: number,
         glyphMap: {
             [_: string]: {
-                [_: number]: StyleGlyph;
+                [_: string]: StyleGlyph;
             };
         },
         imagePositions: {[_: string]: ImagePosition},
@@ -336,26 +336,29 @@ export class TaggedString {
         let currentX = 0;
 
         let i = 0;
-        const chars = this.text[Symbol.iterator]();
+        const chars = segmenter.segment(this.text)[Symbol.iterator]();
         let char = chars.next();
-        const nextChars = this.text[Symbol.iterator]();
+        const nextChars = segmenter.segment(this.text)[Symbol.iterator]();
         nextChars.next();
         let nextChar = nextChars.next();
-        const nextNextChars = this.text[Symbol.iterator]();
+        const nextNextChars = segmenter.segment(this.text)[Symbol.iterator]();
         nextNextChars.next();
         nextNextChars.next();
         let nextNextChar = nextNextChars.next();
 
         while (!char.done) {
             const section = this.getSection(i);
-            const codePoint = char.value.codePointAt(0);
-            if (!charIsWhitespace(codePoint)) currentX += getGlyphAdvance(codePoint, section, glyphMap, imagePositions, spacing, layoutTextSize);
+            const segment = char.value.segment;
+            const codePoint = segment.codePointAt(0);
+
+            if (!charIsWhitespace(codePoint)) currentX += getGlyphAdvance(segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
 
             // Ideographic characters, spaces, and word-breaking punctuation that often appear without
             // surrounding spaces.
             if (!nextChar.done) {
                 const ideographicBreak = codePointAllowsIdeographicBreaking(codePoint);
-                const nextCodePoint = nextChar.value.codePointAt(0);
+                const nextSegment = nextChar.value.segment;
+                const nextCodePoint = nextSegment.codePointAt(0);
                 if (breakable[codePoint] || ideographicBreak || 'imageName' in section || (!nextNextChar.done && breakableBefore[nextCodePoint])) {
 
                     potentialLineBreaks.push(
@@ -389,7 +392,7 @@ export class TaggedString {
         maxWidth: number,
         glyphMap: {
             [_: string]: {
-                [_: number]: StyleGlyph;
+                [_: string]: StyleGlyph;
             };
         },
         imagePositions: {[_: string]: ImagePosition},
@@ -397,9 +400,9 @@ export class TaggedString {
         let totalWidth = 0;
 
         let index = 0;
-        for (const char of this.text) {
+        for (const {segment} of segmenter.segment(this.text)) {
             const section = this.getSection(index);
-            totalWidth += getGlyphAdvance(char.codePointAt(0), section, glyphMap, imagePositions, spacing, layoutTextSize);
+            totalWidth += getGlyphAdvance(segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
             index++;
         }
 

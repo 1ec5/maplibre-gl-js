@@ -106,6 +106,8 @@ const shaderOpacityAttributes = [
     {name: 'a_fade_opacity', components: 1, type: 'Uint8' as ViewType, offset: 0}
 ];
 
+const segmenter = new Intl.Segmenter();
+
 function addVertex(
     array: StructArray,
     anchorX: number,
@@ -413,17 +415,17 @@ export class SymbolBucket implements Bucket {
 
     private calculateGlyphDependencies(
         text: string,
-        stack: {[_: number]: boolean},
+        stack: {[_: string]: boolean},
         textAlongLine: boolean,
         allowVerticalPlacement: boolean,
         doesAllowVerticalWritingMode: boolean) {
 
-        for (const char of text) {
-            stack[char.codePointAt(0)] = true;
+        for (const {segment} of segmenter.segment(text)) {
+            stack[segment] = true;
             if ((textAlongLine || allowVerticalPlacement) && doesAllowVerticalWritingMode) {
-                const verticalChar = verticalizedCharacterMap[char];
+                const verticalChar = verticalizedCharacterMap[segment];
                 if (verticalChar) {
-                    stack[verticalChar.codePointAt(0)] = true;
+                    stack[segment] = true;
                 }
             }
         }
