@@ -5,6 +5,15 @@ import {
     codePointRequiresComplexTextShaping
 } from '../util/unicode_properties.g';
 
+export const segmenter = ('Segmenter' in Intl) ? new Intl.Segmenter() : {
+    segment: (text: String) => {
+        return [...text].map((char, index) => ({
+            index,
+            segment: char,
+        }));
+    },
+};
+
 export function charIsWhitespace(char: number) {
     return /\s/u.test(String.fromCodePoint(char));
 }

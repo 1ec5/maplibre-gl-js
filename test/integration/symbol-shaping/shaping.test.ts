@@ -6,6 +6,7 @@ import {ResolvedImage, Formatted, FormattedSection, type VerticalAlign} from '@m
 import {ImagePosition} from '../../../src/render/image_atlas';
 import type {StyleImage} from '../../../src/style/style_image';
 import type {StyleGlyph} from '../../../src/style/style_glyph';
+import {AlphaImage} from '../../../src/util/image';
 
 import glyphsJson from '../assets/glyphs/fontstack-glyphs.json' with {type: 'json'};
 import expectedJson from './tests/text-shaping-linebreak.json' with {type: 'json'};
@@ -35,10 +36,31 @@ describe('shaping', () => {
     const layoutTextSize = 16;
     const layoutTextSizeThisZoom = 16;
     const fontStack = 'Test';
+    // TODO: Change the keys in fontstack-glyphs.json to strings.
     const glyphs = {
-        'Test': glyphsJson as any as StyleGlyph
+        'Test': Object.fromEntries(Object.entries(glyphsJson).map(entry => {
+            const bitmap = new AlphaImage({
+                width: entry[1].rect.w,
+                height: entry[1].rect.h,
+            });
+            const glyph = {
+                grapheme: String.fromCodePoint(entry[1].id),
+                bitmap,
+                metrics: entry[1].metrics,
+            } as StyleGlyph;
+            return [entry[0], glyph];
+        }))
     };
-    const glyphPositions = glyphs;
+    const glyphPositions = {
+        'Test': Object.fromEntries(Object.entries(glyphsJson).map(entry => {
+            const position = {
+                grapheme: String.fromCodePoint(entry[1].id),
+                rect: entry[1].rect,
+                metrics: entry[1].metrics,
+            };
+            return [entry[0], position];
+        }))
+    };
 
     const images = {
         'square': new ImagePosition({x: 0, y: 0, w: 16, h: 16}, {pixelRatio: 1, version: 1} as StyleImage),

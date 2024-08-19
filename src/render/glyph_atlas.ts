@@ -30,7 +30,7 @@ export type GlyphPosition = {
  */
 export type GlyphPositions = {
     [_: string]: {
-        [_: number]: GlyphPosition;
+        [_: string]: GlyphPosition;
     };
 };
 
@@ -46,8 +46,8 @@ export class GlyphAtlas {
             const glyphs = stacks[stack];
             const stackPositions = positions[stack] = {};
 
-            for (const id in glyphs) {
-                const src = glyphs[+id];
+            for (const grapheme in glyphs) {
+                const src = glyphs[grapheme];
                 if (!src || src.bitmap.width === 0 || src.bitmap.height === 0) continue;
 
                 const bin = {
@@ -57,7 +57,7 @@ export class GlyphAtlas {
                     h: src.bitmap.height + 2 * padding
                 };
                 bins.push(bin);
-                stackPositions[id] = {rect: bin, metrics: src.metrics};
+                stackPositions[grapheme] = {rect: bin, metrics: src.metrics};
             }
         }
 
@@ -67,10 +67,10 @@ export class GlyphAtlas {
         for (const stack in stacks) {
             const glyphs = stacks[stack];
 
-            for (const id in glyphs) {
-                const src = glyphs[+id];
+            for (const grapheme in glyphs) {
+                const src = glyphs[grapheme];
                 if (!src || src.bitmap.width === 0 || src.bitmap.height === 0) continue;
-                const bin = positions[stack][id].rect;
+                const bin = positions[stack][grapheme].rect;
                 AlphaImage.copy(src.bitmap, image, {x: 0, y: 0}, {x: bin.x + padding, y: bin.y + padding}, src.bitmap);
             }
         }

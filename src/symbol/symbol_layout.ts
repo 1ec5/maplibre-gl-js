@@ -66,7 +66,7 @@ export function performSymbolLayout(args: {
     bucket: SymbolBucket;
     glyphMap: {
         [_: string]: {
-            [x: number]: StyleGlyph;
+            [x: string]: StyleGlyph;
         };
     };
     glyphPositions: {

@@ -3,7 +3,8 @@ import {
 } from '../util/unicode_properties.g';
 import {
     charIsWhitespace,
-    charInComplexShapingScript
+    charInComplexShapingScript,
+    segmenter
 } from '../util/script_detection';
 import {rtlWorkerPlugin} from '../source/rtl_text_plugin_worker';
 import ONE_EM from './one_em';
@@ -29,7 +30,7 @@ export {shapeText, shapeIcon, applyTextFit, fitIconToText, getAnchorAlignment, W
 
 // The position of a glyph relative to the text's anchor point.
 export type PositionedGlyph = {
-    glyph: number;
+    glyph: string;
     imageName: string | null;
     x: number;
     y: number;
@@ -101,7 +102,7 @@ function shapeText(
     text: Formatted,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     glyphPositions: {
@@ -140,7 +141,7 @@ function shapeText(
         const untaggedLines =
             processBidirectionalText(logicalInput.toString(), lineBreaks);
         for (const line of untaggedLines) {
-            const sectionIndex = [...line].map(() => 0);
+            const sectionIndex = [...segmenter.segment(line)].map(() => 0);
             lines.push(new TaggedString(line, logicalInput.sections, sectionIndex));
         }
     } else if (processStyledBidirectionalText) {
@@ -150,11 +151,11 @@ function shapeText(
         // ICU operates on code units.
         lineBreaks = lineBreaks.map(index => logicalInput.toCodeUnitIndex(index));
 
-        // Convert character-based section index to be based on code units.
+        // Convert grapheme cluster–based section index to be based on code units.
         let i = 0;
         const sectionIndex = [];
-        for (const char of logicalInput.text) {
-            sectionIndex.push(...Array(char.length).fill(logicalInput.sectionIndex[i]));
+        for (const {segment} of segmenter.segment(logicalInput.text)) {
+            sectionIndex.push(...Array(segment.length).fill(logicalInput.sectionIndex[i]));
             i++;
         }
 
@@ -163,9 +164,9 @@ function shapeText(
         for (const line of processedLines) {
             const sectionIndex = [];
             let elapsedChars = '';
-            for (const char of line[0]) {
+            for (const {segment} of segmenter.segment(line[0])) {
                 sectionIndex.push(line[1][elapsedChars.length]);
-                elapsedChars += char;
+                elapsedChars += segment;
             }
             lines.push(new TaggedString(line[0], logicalInput.sections, sectionIndex));
         }
@@ -255,18 +256,18 @@ function getRectAndMetrics(
     glyphPosition: GlyphPosition,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     section: TextSectionOptions,
-    codePoint: number
+    segment: string
 ): GlyphPosition | null {
     if (glyphPosition && glyphPosition.rect) {
         return glyphPosition;
     }
 
     const glyphs = glyphMap[section.fontStack];
-    const glyph = glyphs && glyphs[codePoint];
+    const glyph = glyphs && glyphs[segment];
     if (!glyph) return null;
 
     const metrics = glyph.metrics;
@@ -289,7 +290,7 @@ function isLineVertical(
 function shapeLines(shaping: Shaping,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     glyphPositions: {
@@ -337,12 +338,12 @@ function shapeLines(shaping: Shaping,
         const lineShapingSize = calculateLineContentSize(imagePositions, line, layoutTextSizeFactor);
 
         let i = 0;
-        for (const char of line.text) {
+        for (const {segment} of segmenter.segment(line.text)) {
             const section = line.getSection(i);
-            const codePoint = char.codePointAt(0);
+            const codePoint = segment.codePointAt(0);
             const vertical = isLineVertical(writingMode, allowVerticalPlacement, codePoint);
             const positionedGlyph: PositionedGlyph = {
-                glyph: codePoint,
+                glyph: segment,
                 imageName: null,
                 x,
                 y: y + SHAPING_DEFAULT_OFFSET,
@@ -356,7 +357,7 @@ function shapeLines(shaping: Shaping,
 
             let sectionAttributes: ShapingSectionAttributes;
             if ('fontStack' in section) {
-                sectionAttributes = shapeTextSection(section, codePoint, vertical, lineShapingSize, glyphMap, glyphPositions);
+                sectionAttributes = shapeTextSection(section, segment, vertical, lineShapingSize, glyphMap, glyphPositions);
                 if (!sectionAttributes) continue;
                 positionedGlyph.fontStack = section.fontStack;
             } else {
@@ -420,12 +421,12 @@ function shapeLines(shaping: Shaping,
 
 function shapeTextSection(
     section: TextSectionOptions,
-    codePoint: number,
+    segment: string,
     vertical: boolean,
     lineShapingSize: LineShapingSize,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     glyphPositions: {
@@ -435,9 +436,9 @@ function shapeTextSection(
     },
 ): ShapingSectionAttributes | null {
     const positions = glyphPositions[section.fontStack];
-    const glyphPosition = positions && positions[codePoint];
+    const glyphPosition = positions && positions[segment];
 
-    const rectAndMetrics = getRectAndMetrics(glyphPosition, glyphMap, section, codePoint);
+    const rectAndMetrics = getRectAndMetrics(glyphPosition, glyphMap, section, segment);
 
     if (rectAndMetrics === null) return null;
 
