@@ -218,7 +218,7 @@ export class GlyphManager {
 
         return new GlyphManager.TinySDF({
             fontSize: 24 * textureScale,
-            buffer: 3 * textureScale,
+            buffer: 8 * textureScale,
             radius: 8 * textureScale,
             cutoff: 0.25,
             fontFamily: fontFamily,
