@@ -145,6 +145,7 @@ export class GlyphManager {
         // Client-generated glyphs are rendered at 2x texture scale,
         // because CJK glyphs are more detailed than others.
         const textureScale = 2;
+        const buffer = 10;
 
         let tinySDF = entry.tinySDF;
         if (!tinySDF) {
@@ -164,7 +165,7 @@ export class GlyphManager {
             }
             tinySDF = entry.tinySDF = new GlyphManager.TinySDF({
                 fontSize: 24 * textureScale,
-                buffer: 8 * textureScale,
+                buffer: buffer * textureScale,
                 radius: 8 * textureScale,
                 cutoff: 0.25,
                 fontFamily,
@@ -181,7 +182,7 @@ export class GlyphManager {
             metrics: {
                 width: char.glyphWidth / textureScale || 24,
                 height: char.glyphHeight / textureScale || 24,
-                left: char.glyphLeft / textureScale || 0,
+                left: (char.glyphLeft - buffer) / textureScale || 0,
                 top: char.glyphTop / textureScale || 0,
                 advance: char.glyphAdvance / textureScale || 24,
                 isDoubleResolution: true
