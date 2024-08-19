@@ -15,7 +15,7 @@ function readFontstack(tag: number, glyphs: Array<StyleGlyph>, pbf: Protobuf) {
     if (tag === 3) {
         const {id, bitmap, width, height, left, top, advance} = pbf.readMessage(readGlyph, {});
         glyphs.push({
-            id,
+            grapheme: String.fromCodePoint(id),
             bitmap: new AlphaImage({
                 width: width + 2 * border,
                 height: height + 2 * border

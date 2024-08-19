@@ -2,6 +2,7 @@ import {type PositionedIcon, type Box, type Shaping, SectionOptions, TaggedStrin
 import {ImagePosition} from '../render/image_atlas';
 import type {StyleGlyph} from '../style/style_glyph';
 import {StyleImage, TextFit} from '../style/style_image';
+import {AlphaImage} from '../util/image';
 
 describe('TaggedString', () => {
     describe('length', () => {
@@ -75,20 +76,18 @@ describe('determineLineBreaks', () => {
         top: -8,
         advance: 22,
     };
-    const rect = {
-        x: 0,
-        y: 0,
-        w: 32,
-        h: 32,
-    };
+    const bitmap = new AlphaImage({
+        width: 32,
+        height: 32,
+    });
     const glyphs = {
         'Test': {
-            '97': {id: 0x61, metrics, rect},
-            '98': {id: 0x62, metrics, rect},
-            '99': {id: 0x63, metrics, rect},
-            '40629': {id: 0x9EB5, metrics, rect},
-            '200414': {id: 0x30EDE, metrics, rect},
-        } as any as StyleGlyph,
+            'a': {grapheme: 'a', bitmap, metrics} as StyleGlyph,
+            'b': {grapheme: 'b', bitmap, metrics} as StyleGlyph,
+            'c': {grapheme: 'c', bitmap, metrics} as StyleGlyph,
+            '麵': {grapheme: '麵', bitmap, metrics} as StyleGlyph,
+            '𰻞': {grapheme: '𰻞', bitmap, metrics} as StyleGlyph,
+        },
     };
 
     test('keeps alphabetic characters together', () => {

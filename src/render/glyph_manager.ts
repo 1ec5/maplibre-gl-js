@@ -11,7 +11,7 @@ import type {GetGlyphsResponse} from '../util/actor_messages';
 type Entry = {
     // null means we've requested the range, but the glyph wasn't included in the result.
     glyphs: {
-        [id: number]: StyleGlyph | null;
+        [grapheme: string]: StyleGlyph | null;
     };
     requests: {
         [range: number]: Promise<{[_: number]: StyleGlyph | null}>;
@@ -42,12 +42,12 @@ export class GlyphManager {
         this.url = url;
     }
 
-    async getGlyphs(glyphs: {[stack: string]: Array<number>}): Promise<GetGlyphsResponse> {
-        const glyphsPromises: Promise<{stack: string; id: number; glyph: StyleGlyph}>[] = [];
+    async getGlyphs(glyphs: {[stack: string]: Array<string>}): Promise<GetGlyphsResponse> {
+        const glyphsPromises: Promise<{stack: string; grapheme: string; glyph: StyleGlyph}>[] = [];
 
         for (const stack in glyphs) {
-            for (const id of glyphs[stack]) {
-                glyphsPromises.push(this._getAndCacheGlyphsPromise(stack, id));
+            for (const grapheme of glyphs[stack]) {
+                glyphsPromises.push(this._getAndCacheGlyphsPromise(stack, grapheme));
             }
         }
 
@@ -55,13 +55,13 @@ export class GlyphManager {
 
         const result: GetGlyphsResponse = {};
 
-        for (const {stack, id, glyph} of updatedGlyphs) {
+        for (const {stack, grapheme, glyph} of updatedGlyphs) {
             if (!result[stack]) {
                 result[stack] = {};
             }
             // Clone the glyph so that our own copy of its ArrayBuffer doesn't get transferred.
-            result[stack][id] = glyph && {
-                id: glyph.id,
+            result[stack][grapheme] = glyph && {
+                grapheme: glyph.grapheme,
                 bitmap: glyph.bitmap.clone(),
                 metrics: glyph.metrics
             };
@@ -70,7 +70,7 @@ export class GlyphManager {
         return result;
     }
 
-    async _getAndCacheGlyphsPromise(stack: string, id: number): Promise<{stack: string; id: number; glyph: StyleGlyph}> {
+    async _getAndCacheGlyphsPromise(stack: string, grapheme: string): Promise<{stack: string; grapheme: string; glyph: StyleGlyph}> {
         let entry = this.entries[stack];
         if (!entry) {
             entry = this.entries[stack] = {
@@ -80,20 +80,21 @@ export class GlyphManager {
             };
         }
 
-        let glyph = entry.glyphs[id];
+        let glyph = entry.glyphs[grapheme];
         if (glyph !== undefined) {
-            return {stack, id, glyph};
+            return {stack, grapheme, glyph};
         }
 
-        glyph = this._tinySDF(entry, stack, id);
+        glyph = this._tinySDF(entry, stack, grapheme);
         if (glyph) {
-            entry.glyphs[id] = glyph;
-            return {stack, id, glyph};
+            entry.glyphs[grapheme] = glyph;
+            return {stack, grapheme, glyph};
         }
 
+        const id = grapheme.codePointAt(0);
         const range = Math.floor(id / 256);
         if (entry.ranges[range]) {
-            return {stack, id, glyph};
+            return {stack, grapheme, glyph};
         }
 
         if (!this.url) {
@@ -106,13 +107,14 @@ export class GlyphManager {
         }
 
         const response = await entry.requests[range];
-        for (const id in response) {
+        for (const grapheme in response) {
+            const id = grapheme.codePointAt(0);
             if (!this._doesCharSupportLocalGlyph(+id)) {
-                entry.glyphs[+id] = response[+id];
+                entry.glyphs[grapheme] = response[grapheme];
             }
         }
         entry.ranges[range] = true;
-        return {stack, id, glyph: response[id] || null};
+        return {stack, grapheme, glyph: response[grapheme] || null};
     }
 
     /**
@@ -132,12 +134,13 @@ export class GlyphManager {
              charAllowsIdeographicBreaking(id));
     }
 
-    _tinySDF(entry: Entry, stack: string, id: number): StyleGlyph {
+    _tinySDF(entry: Entry, stack: string, grapheme: string): StyleGlyph {
         const fontFamily = this.localIdeographFontFamily;
         if (!fontFamily) {
             return;
         }
 
+        const id = grapheme.codePointAt(0);
         if (!this._doesCharSupportLocalGlyph(id)) {
             return;
         }
@@ -166,7 +169,7 @@ export class GlyphManager {
             });
         }
 
-        const char = tinySDF.draw(String.fromCodePoint(id));
+        const char = tinySDF.draw(grapheme);
 
         /**
          * TinySDF's "top" is the distance from the alphabetic baseline to the top of the glyph.
@@ -186,7 +189,7 @@ export class GlyphManager {
         const leftAdjustment = 0.5;
 
         return {
-            id,
+            grapheme,
             bitmap: new AlphaImage({width: char.width || 30 * textureScale, height: char.height || 30 * textureScale}, char.data),
             metrics: {
                 width: char.glyphWidth / textureScale || 24,
