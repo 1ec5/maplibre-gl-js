@@ -1,7 +1,8 @@
 import {
     charHasUprightVerticalOrientation,
     charAllowsIdeographicBreaking,
-    charInComplexShapingScript
+    charInComplexShapingScript,
+    splitByGraphemeCluster
 } from '../util/script_detection';
 import {verticalizePunctuation} from '../util/verticalize_punctuation';
 import {rtlWorkerPlugin} from '../source/rtl_text_plugin_worker';
@@ -75,15 +76,6 @@ export type TextJustify = 'left' | 'center' | 'right';
 const PUAbegin = 0xE000;
 const PUAend = 0xF8FF;
 
-const segmenter = ('Segmenter' in Intl) ? new Intl.Segmenter() : {
-    segment: (text: String) => {
-        return [...text].map((char, index) => ({
-            index,
-            segment: char,
-        }));
-    },
-};
-
 export class SectionOptions {
     // Text options
     scale: number;
@@ -139,7 +131,7 @@ export class TaggedString {
     }
 
     length(): number {
-        return Array.from(segmenter.segment(this.text)).length;
+        return splitByGraphemeCluster(this.text).length;
     }
 
     getSection(index: number): SectionOptions {
@@ -166,7 +158,7 @@ export class TaggedString {
 
     substring(start: number, end: number): TaggedString {
         const substring = new TaggedString();
-        substring.text = Array.from(segmenter.segment(this.text)).slice(start, end).map(s => s.segment).join('');
+        substring.text = splitByGraphemeCluster(this.text).slice(start, end).map(s => s.segment).join('');
         substring.sectionIndex = this.sectionIndex.slice(start, end);
         substring.sections = this.sections;
         return substring;
@@ -176,7 +168,7 @@ export class TaggedString {
      * Converts a grapheme cluster index to a UTF-16 code unit (JavaScript character index).
      */
     toCodeUnitIndex(unicodeIndex: number): number {
-        return Array.from(segmenter.segment(this.text)).slice(0, unicodeIndex).map(s => s.segment).join('').length;
+        return splitByGraphemeCluster(this.text).slice(0, unicodeIndex).map(s => s.segment).join('').length;
     }
 
     toString(): string {
@@ -192,7 +184,7 @@ export class TaggedString {
         this.sections.push(SectionOptions.forText(section.scale, section.fontStack || defaultFontStack));
         const index = this.sections.length - 1;
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        for (const char of segmenter.segment(section.text)) {
+        for (const {segment} of splitByGraphemeCluster(section.text)) {
             this.sectionIndex.push(index);
         }
     }
@@ -287,7 +279,7 @@ function shapeText(
             taggedLine.text = line;
             taggedLine.sections = logicalInput.sections;
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            for (const char of segmenter.segment(line)) {
+            for (const {segment} of splitByGraphemeCluster(line)) {
                 taggedLine.sectionIndex.push(0);
             }
             lines.push(taggedLine);
@@ -302,7 +294,7 @@ function shapeText(
         // Convert grapheme cluster–based section index to be based on code units.
         let i = 0;
         const sectionIndex = [];
-        for (const {segment} of segmenter.segment(logicalInput.text)) {
+        for (const {segment} of splitByGraphemeCluster(logicalInput.text)) {
             sectionIndex.push(...Array(segment.length).fill(logicalInput.sectionIndex[i]));
             i++;
         }
@@ -314,7 +306,7 @@ function shapeText(
             taggedLine.text = line[0];
             taggedLine.sections = logicalInput.sections;
             let elapsedChars = '';
-            for (const {segment} of segmenter.segment(line[0])) {
+            for (const {segment} of splitByGraphemeCluster(line[0])) {
                 taggedLine.sectionIndex.push(line[1][elapsedChars.length]);
                 elapsedChars += segment;
             }
@@ -422,7 +414,7 @@ function determineAverageLineWidth(logicalInput: TaggedString,
     let totalWidth = 0;
 
     let index = 0;
-	for (const {segment} of segmenter.segment(logicalInput.text)) {
+    for (const {segment} of splitByGraphemeCluster(logicalInput.text)) {
         const section = logicalInput.getSection(index);
         totalWidth += getGlyphAdvance(segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
         index++;
@@ -544,12 +536,12 @@ export function determineLineBreaks(
     let currentX = 0;
 
     let i = 0;
-    const chars = segmenter.segment(logicalInput.text)[Symbol.iterator]();
+    const chars = splitByGraphemeCluster(logicalInput.text)[Symbol.iterator]();
     let char = chars.next();
-    const nextChars = segmenter.segment(logicalInput.text)[Symbol.iterator]();
+    const nextChars = splitByGraphemeCluster(logicalInput.text)[Symbol.iterator]();
     nextChars.next();
     let nextChar = nextChars.next();
-    const nextNextChars = segmenter.segment(logicalInput.text)[Symbol.iterator]();
+    const nextNextChars = splitByGraphemeCluster(logicalInput.text)[Symbol.iterator]();
     nextNextChars.next();
     nextNextChars.next();
     let nextNextChar = nextNextChars.next();
@@ -557,7 +549,7 @@ export function determineLineBreaks(
     while (!char.done) {
         const section = logicalInput.getSection(i);
         const segment = char.value.segment;
-		const codePoint = segment.codePointAt(0);
+        const codePoint = segment.codePointAt(0);
         if (!whitespace[codePoint]) currentX += getGlyphAdvance(segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
 
         // Ideographic characters, spaces, and word-breaking punctuation that often appear without
@@ -565,7 +557,7 @@ export function determineLineBreaks(
         if (!nextChar.done) {
             const ideographicBreak = charAllowsIdeographicBreaking(codePoint);
             const nextSegment = nextChar.value.segment;
-			const nextCodePoint = nextSegment.codePointAt(0);
+            const nextCodePoint = nextSegment.codePointAt(0);
             if (breakable[codePoint] || ideographicBreak || section.imageName || (!nextNextChar.done && breakableBefore[nextCodePoint])) {
 
                 potentialLineBreaks.push(
@@ -675,7 +667,7 @@ function shapeLines(shaping: Shaping,
         }
 
         let i = 0;
-        for (const {segment} of segmenter.segment(line.text)) {
+        for (const {segment} of splitByGraphemeCluster(line.text)) {
             const section = line.getSection(i);
             const sectionIndex = line.getSectionIndex(i);
             const codePoint = segment.codePointAt(0);
