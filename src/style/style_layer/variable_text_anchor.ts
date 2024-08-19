@@ -23,7 +23,7 @@ export type TextAnchor = keyof typeof TextAnchorEnum;
 // But in the vertical direction, the glyphs appear to "start" at the baseline
 // We don't actually load baseline data, but we assume an offset of ONE_EM - 17
 // (see "yOffset" in shaping.js)
-const baselineOffset = 7;
+const baselineOffset = 0;
 export const INVALID_TEXT_OFFSET = Number.POSITIVE_INFINITY;
 
 export function evaluateVariableOffset(anchor: TextAnchor, offset: [number, number]): [number, number] {
