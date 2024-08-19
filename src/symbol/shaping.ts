@@ -4,7 +4,8 @@ import {
 import {
     charIsWhitespace,
     charInComplexShapingScript,
-    segmenter
+    segmenter,
+    splitByGraphemeCluster
 } from '../util/script_detection';
 import {rtlWorkerPlugin} from '../source/rtl_text_plugin_worker';
 import ONE_EM from './one_em';
@@ -154,7 +155,7 @@ function shapeText(
         // Convert grapheme cluster–based section index to be based on code units.
         let i = 0;
         const sectionIndex = [];
-        for (const {segment} of segmenter.segment(logicalInput.text)) {
+        for (const {segment} of splitByGraphemeCluster(logicalInput.text)) {
             sectionIndex.push(...Array(segment.length).fill(logicalInput.sectionIndex[i]));
             i++;
         }
@@ -164,7 +165,7 @@ function shapeText(
         for (const line of processedLines) {
             const sectionIndex = [];
             let elapsedChars = '';
-            for (const {segment} of segmenter.segment(line[0])) {
+            for (const {segment} of splitByGraphemeCluster(line[0])) {
                 sectionIndex.push(line[1][elapsedChars.length]);
                 elapsedChars += segment;
             }
@@ -338,7 +339,7 @@ function shapeLines(shaping: Shaping,
         const lineShapingSize = calculateLineContentSize(imagePositions, line, layoutTextSizeFactor);
 
         let i = 0;
-        for (const {segment} of segmenter.segment(line.text)) {
+        for (const {segment} of splitByGraphemeCluster(line.text)) {
             const section = line.getSection(i);
             const codePoint = segment.codePointAt(0);
             const vertical = isLineVertical(writingMode, allowVerticalPlacement, codePoint);
