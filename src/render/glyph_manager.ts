@@ -143,7 +143,7 @@ export class GlyphManager {
             const response = await entry.requests[range];
             for (const responseGrapheme in response) {
                 // FIXME: Whyyyyy??
-                const key = responseGrapheme.length > 1 ? String.fromCodePoint(responseGrapheme) : responseGrapheme;
+                const key = responseGrapheme.length > 1 ? String.fromCodePoint(+responseGrapheme) : responseGrapheme;
                 entry.glyphs[key] = response[responseGrapheme];
             }
             entry.ranges[range] = true;

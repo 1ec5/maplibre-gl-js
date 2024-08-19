@@ -4,7 +4,7 @@ import ONE_EM from './one_em';
 import type {ImagePosition} from '../render/image_atlas';
 import type {StyleGlyph} from '../style/style_glyph';
 import {verticalizePunctuation} from '../util/verticalize_punctuation';
-import {charIsWhitespace, segmenter} from '../util/script_detection';
+import {charIsWhitespace, segmenter, splitByGraphemeCluster} from '../util/script_detection';
 import {codePointAllowsIdeographicBreaking} from '../util/unicode_properties.g';
 import {warnOnce} from '../util/util';
 
@@ -199,7 +199,7 @@ export class TaggedString {
     }
 
     length(): number {
-        return Array.from(segmenter.segment(this.text)).length;
+        return splitByGraphemeCluster(this.text).length;
     }
 
     getSection(index: number): SectionOptions {
@@ -235,7 +235,7 @@ export class TaggedString {
     }
 
     substring(start: number, end: number): TaggedString {
-        const text = Array.from(segmenter.segment(this.text)).slice(start, end).map(s => s.segment).join('');
+        const text = splitByGraphemeCluster(this.text).slice(start, end).map(s => s.segment).join('');
         const sectionIndex = this.sectionIndex.slice(start, end);
         return new TaggedString(text, this.sections, sectionIndex);
     }
@@ -244,7 +244,7 @@ export class TaggedString {
      * Converts a grapheme cluster index to a UTF-16 code unit (JavaScript character index).
      */
     toCodeUnitIndex(unicodeIndex: number): number {
-        return Array.from(segmenter.segment(this.text)).slice(0, unicodeIndex).map(s => s.segment).join('').length;
+        return splitByGraphemeCluster(this.text).slice(0, unicodeIndex).map(s => s.segment).join('').length;
     }
 
     toString(): string {
@@ -282,7 +282,7 @@ export class TaggedString {
             fontStack: section.fontStack || defaultFontStack,
         } as TextSectionOptions);
         const index = this.sections.length - 1;
-        this.sectionIndex.push(...[...segmenter.segment(section.text)].map(() => index));
+        this.sectionIndex.push(...splitByGraphemeCluster(section.text).map(() => index));
     }
 
     addImageSection(section: FormattedSection) {
@@ -336,12 +336,12 @@ export class TaggedString {
         let currentX = 0;
 
         let i = 0;
-        const chars = segmenter.segment(this.text)[Symbol.iterator]();
+        const chars = splitByGraphemeCluster(this.text)[Symbol.iterator]();
         let char = chars.next();
-        const nextChars = segmenter.segment(this.text)[Symbol.iterator]();
+        const nextChars = splitByGraphemeCluster(this.text)[Symbol.iterator]();
         nextChars.next();
         let nextChar = nextChars.next();
-        const nextNextChars = segmenter.segment(this.text)[Symbol.iterator]();
+        const nextNextChars = splitByGraphemeCluster(this.text)[Symbol.iterator]();
         nextNextChars.next();
         nextNextChars.next();
         let nextNextChar = nextNextChars.next();
@@ -400,7 +400,7 @@ export class TaggedString {
         let totalWidth = 0;
 
         let index = 0;
-        for (const {segment} of segmenter.segment(this.text)) {
+        for (const {segment} of splitByGraphemeCluster(this.text)) {
             const section = this.getSection(index);
             totalWidth += getGlyphAdvance(segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
             index++;

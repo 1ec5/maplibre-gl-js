@@ -23,7 +23,7 @@ import {ProgramConfigurationSet} from '../program_configuration';
 import {TriangleIndexArray, LineIndexArray} from '../index_array_type';
 import {transformText} from '../../symbol/transform_text';
 import {mergeLines} from '../../symbol/merge_lines';
-import {allowsVerticalWritingMode, stringContainsRTLText} from '../../util/script_detection';
+import {allowsVerticalWritingMode, splitByGraphemeCluster, stringContainsRTLText} from '../../util/script_detection';
 import {WritingMode} from '../../symbol/shaping';
 import {loadGeometry} from '../load_geometry';
 import {toEvaluationFeature} from '../evaluation_feature';
@@ -105,8 +105,6 @@ export type SortKeyRange = {
 const shaderOpacityAttributes = [
     {name: 'a_fade_opacity', components: 1, type: 'Uint8' as ViewType, offset: 0}
 ];
-
-const segmenter = new Intl.Segmenter();
 
 function addVertex(
     array: StructArray,
@@ -420,7 +418,7 @@ export class SymbolBucket implements Bucket {
         allowVerticalPlacement: boolean,
         doesAllowVerticalWritingMode: boolean) {
 
-        for (const {segment} of segmenter.segment(text)) {
+        for (const {segment} of splitByGraphemeCluster(text)) {
             stack[segment] = true;
             if ((textAlongLine || allowVerticalPlacement) && doesAllowVerticalWritingMode) {
                 const verticalChar = verticalizedCharacterMap[segment];
