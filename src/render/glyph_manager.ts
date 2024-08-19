@@ -148,6 +148,12 @@ export class GlyphManager {
 
         let tinySDF = entry.tinySDF;
         if (!tinySDF) {
+            let fontStyle = 'normal';
+            if (/italic/i.test(stack)) {
+                fontStyle = 'italic';
+            } else if (/oblique/i.test(stack)) {
+                fontStyle = 'oblique';
+            }
             let fontWeight = '400';
             if (/bold/i.test(stack)) {
                 fontWeight = '900';
@@ -162,6 +168,7 @@ export class GlyphManager {
                 radius: 8 * textureScale,
                 cutoff: 0.25,
                 fontFamily,
+                fontStyle,
                 fontWeight
             });
         }
