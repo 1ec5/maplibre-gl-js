@@ -177,31 +177,14 @@ export class GlyphManager {
         entry[tinySDFKey] ||= this._createTinySDF(usesLocalIdeographFontFamily ? this.localIdeographFontFamily : stack);
         const char = entry[tinySDFKey].draw(grapheme);
 
-        /**
-         * TinySDF's "top" is the distance from the alphabetic baseline to the top of the glyph.
-         * Server-generated fonts specify "top" relative to an origin above the em box (the origin
-         * comes from FreeType, but I'm unclear on exactly how it's derived)
-         * ref: https://github.com/mapbox/sdf-glyph-foundry
-         *
-         * Server fonts don't yet include baseline information, so we can't line up exactly with them
-         * (and they don't line up with each other)
-         * ref: https://github.com/mapbox/node-fontnik/pull/160
-         *
-         * To approximately align TinySDF glyphs with server-provided glyphs, we use this baseline adjustment
-         * factor calibrated to be in between DIN Pro and Arial Unicode (but closer to Arial Unicode)
-         */
-        const topAdjustment = 27.5;
-
-        const leftAdjustment = 0.5;
-
         return {
             grapheme,
             bitmap: new AlphaImage({width: char.width || 30 * textureScale, height: char.height || 30 * textureScale}, char.data),
             metrics: {
                 width: char.glyphWidth / textureScale || 24,
                 height: char.glyphHeight / textureScale || 24,
-                left: (char.glyphLeft / textureScale + leftAdjustment) || 0,
-                top: char.glyphTop / textureScale - topAdjustment || -8,
+                left: char.glyphLeft / textureScale || 0,
+                top: char.glyphTop / textureScale || 0,
                 advance: char.glyphAdvance / textureScale || 24,
                 isDoubleResolution: true
             }

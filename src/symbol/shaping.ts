@@ -25,7 +25,7 @@ enum WritingMode {
     horizontalOnly = 3
 }
 
-const SHAPING_DEFAULT_OFFSET = -17;
+const SHAPING_DEFAULT_OFFSET = 0;
 export {shapeText, shapeIcon, applyTextFit, fitIconToText, getAnchorAlignment, WritingMode, SHAPING_DEFAULT_OFFSET};
 
 // The position of a glyph relative to the text's anchor point.
