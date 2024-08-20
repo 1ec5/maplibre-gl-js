@@ -182,6 +182,8 @@ export class GlyphManager {
         entry[tinySDFKey] ||= this._createTinySDF(usesLocalIdeographFontFamily ? this.localIdeographFontFamily : stack);
         const char = entry[tinySDFKey].draw(grapheme);
 
+        const isControl = /^\p{gc=Cf}+$/u.test(grapheme);
+
         return {
             grapheme,
             bitmap: new AlphaImage({width: char.width || 30 * textureScale, height: char.height || 30 * textureScale}, char.data),
