@@ -176,15 +176,17 @@ export class GlyphManager {
 
         const char = tinySDF.draw(grapheme);
 
+        const isControl = /^\p{gc=Cf}+$/u.test(grapheme);
+
         return {
             grapheme,
             bitmap: new AlphaImage({width: char.width || 30 * textureScale, height: char.height || 30 * textureScale}, char.data),
             metrics: {
-                width: char.glyphWidth / textureScale || 24,
+                width: isControl ? 0 : (char.glyphWidth / textureScale || 24),
                 height: char.glyphHeight / textureScale || 24,
                 left: (char.glyphLeft - buffer) / textureScale || 0,
                 top: char.glyphTop / textureScale || 0,
-                advance: char.glyphAdvance / textureScale || 24,
+                advance: isControl ? 0 : (char.glyphAdvance / textureScale || 24),
                 isDoubleResolution: true
             }
         };
