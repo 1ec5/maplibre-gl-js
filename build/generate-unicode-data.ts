@@ -401,9 +401,10 @@ export function codePointRequiresComplexTextShaping(codePoint: number): boolean 
  * Returns whether two grapheme clusters detected by \`Intl.Segmenter\` can be combined to prevent an invisible combining mark from appearing unexpectedly.
  */
 export function canCombineGraphemes(former: string, latter: string): boolean {
+    // Zero-width joiner
     // Indic_Syllabic_Category=Invisible_Stacker as of Unicode ${indicSyllabicCategory.version}, published ${indicSyllabicCategory.date}.
     // eslint-disable-next-line no-misleading-character-class
-    const invisibleStackersRegExp = /[${indicSyllabicCategory.characterClass}]$/u;
-    return invisibleStackersRegExp.test(former) || /^\\p{gc=Mc}/u.test(latter);
+    const terminalJoinersRegExp = /[\\u200D${indicSyllabicCategory.characterClass}]$/u;
+    return terminalJoinersRegExp.test(former) || /^\\p{gc=Mc}/u.test(latter);
 }
 `);
