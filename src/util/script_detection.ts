@@ -1,6 +1,7 @@
 /* eslint-disable new-cap */
 
 import {unicodeBlockLookup as isChar} from './is_char_in_unicode_block';
+import {canCombineGraphemes} from '../data/unicode_properties';
 
 const segmenter = ('Segmenter' in Intl) ? new Intl.Segmenter() : {
     segment: (text: String) => {
@@ -10,27 +11,6 @@ const segmenter = ('Segmenter' in Intl) ? new Intl.Segmenter() : {
         }));
     },
 };
-
-// Indic_Syllabic_Category=Invisible_Stacker as of Unicode 16.0.0.
-// https://www.unicode.org/Public/UCD/latest/ucd/IndicSyllabicCategory.txt
-const invisibleStackerCodePoints = [
-	0x1039, // MYANMAR SIGN VIRAMA
-	0x17D2, // KHMER SIGN COENG
-	0x1A60, // TAI THAM SIGN SAKOT
-	0x1BAB, // SUNDANESE SIGN VIRAMA
-	0xAAF6, // MEETEI MAYEK VIRAMA
-	0x10A3F, // KHAROSHTHI VIRAMA
-	0x11133, // CHAKMA VIRAMA
-	0x113D0, // TULU-TIGALARI CONJOINER
-	0x1193E, // DIVES AKURU VIRAMA
-	0x11A47, // ZANABAZAR SQUARE SUBJOINER
-	0x11A99, // SOYOMBO SUBJOINER
-	0x11D45, // MASARAM GONDI VIRAMA
-	0x11D97, // GUNJALA GONDI VIRAMA
-	0x11F42, // KAWI CONJOINER
-];
-
-const invisibleStackersRegExp = new RegExp('[' + invisibleStackerCodePoints.map(cp => `\\u{${cp.toString(16)}}`) + ']$', 'u');
 
 export function splitByGraphemeCluster(text: string) {
     const segments = segmenter.segment(text)[Symbol.iterator]();
@@ -42,9 +22,7 @@ export function splitByGraphemeCluster(text: string) {
     const baseSegments = [];
     while (!segment.done) {
         const baseSegment = segment;
-        while (!nextSegment.done &&
-			   (/^\p{gc=Mc}/u.test(nextSegment.value.segment) ||
-				invisibleStackersRegExp.test(baseSegment.value.segment))) {
+        while (!nextSegment.done && canCombineGraphemes(baseSegment.value.segment, nextSegment.value.segment)) {
             baseSegment.value.segment += nextSegment.value.segment;
             segment = segments.next();
             nextSegment = nextSegments.next();
