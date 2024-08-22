@@ -139,11 +139,15 @@ function shapeText(
         lines = [];
         // ICU operates on code units.
         lineBreaks = lineBreaks.map(index => logicalInput.toCodeUnitIndex(index));
+        // Replace zero-width joiners with temporary strip markers (from the Private Use Area) to prevent ICU from stripping them out.
+        const markedInput = logicalInput.toString().replace(/\u200D/g, '\uF8FF');
         const untaggedLines =
-            processBidirectionalText(logicalInput.toString(), lineBreaks);
+            processBidirectionalText(markedInput, lineBreaks);
         for (const line of untaggedLines) {
+            // Restore zero-width joiners from temporary strip markers.
+            const unstrippedLine = line.replace(/\uF8FF/g, '\u200D');
             const sectionIndex = [...segmenter.segment(line)].map(() => 0);
-            lines.push(new TaggedString(line, logicalInput.sections, sectionIndex));
+            lines.push(new TaggedString(unstrippedLine, logicalInput.sections, sectionIndex));
         }
     } else if (processStyledBidirectionalText) {
         // Need version of mapbox-gl-rtl-text with style support for combining RTL text
@@ -151,25 +155,29 @@ function shapeText(
         lines = [];
         // ICU operates on code units.
         lineBreaks = lineBreaks.map(index => logicalInput.toCodeUnitIndex(index));
+        // Replace zero-width joiners with temporary strip markers (from the Private Use Area) to prevent ICU from stripping them out.
+        const markedInput = logicalInput.toString().replace(/\u200D/g, '\uF8FF');
 
         // Convert grapheme cluster–based section index to be based on code units.
         let i = 0;
         const sectionIndex = [];
-        for (const {segment} of splitByGraphemeCluster(logicalInput.text)) {
+        for (const {segment} of splitByGraphemeCluster(markedInput)) {
             sectionIndex.push(...Array(segment.length).fill(logicalInput.sectionIndex[i]));
             i++;
         }
 
         const processedLines =
-            processStyledBidirectionalText(logicalInput.text, sectionIndex, lineBreaks);
+            processStyledBidirectionalText(markedInput, sectionIndex, lineBreaks);
         for (const line of processedLines) {
+            // Restore zero-width joiners from temporary strip markers.
+            const unstrippedLine = line[0].replace(/\uF8FF/g, '\u200D');
             const sectionIndex = [];
             let elapsedChars = '';
             for (const {segment} of splitByGraphemeCluster(line[0])) {
                 sectionIndex.push(line[1][elapsedChars.length]);
                 elapsedChars += segment;
             }
-            lines.push(new TaggedString(line[0], logicalInput.sections, sectionIndex));
+            lines.push(new TaggedString(unstrippedLine, logicalInput.sections, sectionIndex));
         }
     } else {
         lines = breakLines(logicalInput, lineBreaks);
