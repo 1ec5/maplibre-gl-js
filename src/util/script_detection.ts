@@ -389,10 +389,6 @@ const rtlScriptCodes = [
 
 const rtlScriptRegExp = sanitizedRegExpFromScriptCodes(rtlScriptCodes);
 
-export function charInRTLScript(char: number) {
-    return rtlScriptRegExp.test(String.fromCodePoint(char));
-}
-
 export function charInSupportedScript(char: number, canRenderRTL: boolean) {
     // This is a rough heuristic: whether we "can render" a script
     // actually depends on the properties of the font being used
@@ -401,7 +397,7 @@ export function charInSupportedScript(char: number, canRenderRTL: boolean) {
 
     // Even in Latin script, we "can't render" combinations such as the fi
     // ligature, but we don't consider that semantically significant.
-    if (!canRenderRTL && charInRTLScript(char)) {
+    if (!canRenderRTL && rtlScriptRegExp.test(String.fromCodePoint(char))) {
         return false;
     }
     if ((char >= 0x0900 && char <= 0x0DFF) ||
@@ -419,12 +415,7 @@ export function charInSupportedScript(char: number, canRenderRTL: boolean) {
 }
 
 export function stringContainsRTLText(chars: string): boolean {
-    for (const char of chars) {
-        if (charInRTLScript(char.codePointAt(0))) {
-            return true;
-        }
-    }
-    return false;
+    return rtlScriptRegExp.test(chars);
 }
 
 export function isStringInSupportedScript(chars: string, canRenderRTL: boolean) {
