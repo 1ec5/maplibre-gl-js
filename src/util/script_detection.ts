@@ -394,7 +394,7 @@ const rtlScriptCodes = [
     'Yezi', // Yezidi
 ];
 
-const rtlScriptRegExp = sanitizedRegExpFromScriptCodes(rtlScriptCodes);
+export const rtlScriptRegExp = sanitizedRegExpFromScriptCodes(rtlScriptCodes);
 
 export function charInSupportedScript(char: number, canRenderRTL: boolean) {
     // This is a rough heuristic: whether we "can render" a script

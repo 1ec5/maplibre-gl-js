@@ -2,6 +2,7 @@ import {
     charHasUprightVerticalOrientation,
     charAllowsIdeographicBreaking,
     charInComplexShapingScript,
+    rtlScriptRegExp,
     splitByGraphemeCluster
 } from '../util/script_detection';
 import {verticalizePunctuation} from '../util/verticalize_punctuation';
@@ -67,6 +68,8 @@ function isEmpty(positionedLines: Array<PositionedLine>) {
     }
     return true;
 }
+
+const rtlCombiningMarkRegExp = new RegExp(`(${rtlScriptRegExp.source})([\\p{gc=Mn}\\p{gc=Mc}])`, 'gu');
 
 export type SymbolAnchor = 'center' | 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 export type TextJustify = 'left' | 'center' | 'right';
@@ -266,35 +269,52 @@ function shapeText(
     let lines: Array<TaggedString>;
 
     let lineBreaks = determineLineBreaks(logicalInput, spacing, maxWidth, glyphMap, imagePositions, layoutTextSize);
+
+    /// Prepares a string as input to the RTL plugin.
+    const stripMarker = '\uF8FF';
+    const prepareBidiInput = string => string
+        // Replace zero-width joiners with temporary strip markers (from the Private Use Area) to prevent ICU from stripping them out.
+        .replace(/\u200D/g, stripMarker)
+        // Preemptively swap combining marks with the characters they modify so they remain in logical order.
+        .replace(rtlCombiningMarkRegExp, '$2$1');
+
+    /// Prepares a line break array as input to the RTL plugin.
+    const adjustLineBreaks = () => {
+        const graphemes = splitByGraphemeCluster(logicalInput.toString());
+        // ICU operates on code units.
+        lineBreaks = lineBreaks
+            // Get the length of the prefix leading up to each code unit.
+            .map(index => graphemes.slice(0, index).join('').length);
+    };
+
+    /// Converts a line of output from the RTL plugin into a tagged string, except for `sectionIndex`.
+    const taggedLineFromBidi = (line) => {
+        const taggedLine = new TaggedString();
+        // Restore zero-width joiners from temporary strip markers.
+        taggedLine.text = line.replaceAll(stripMarker, '\u200D');
+        taggedLine.sections = logicalInput.sections;
+        return taggedLine;
+    };
+
     const {processBidirectionalText, processStyledBidirectionalText} = rtlWorkerPlugin;
     if (processBidirectionalText && logicalInput.sections.length === 1) {
         // Bidi doesn't have to be style-aware
         lines = [];
-        // ICU operates on code units.
-        lineBreaks = lineBreaks.map(index => logicalInput.toCodeUnitIndex(index));
-        // Replace zero-width joiners with temporary strip markers (from the Private Use Area) to prevent ICU from stripping them out.
-        const markedInput = logicalInput.toString().replace(/\u200D/g, '\uF8FF');
+        const markedInput = prepareBidiInput(logicalInput.toString());
+        adjustLineBreaks();
         const untaggedLines =
             processBidirectionalText(markedInput, lineBreaks);
         for (const line of untaggedLines) {
-            const taggedLine = new TaggedString();
-            // Restore zero-width joiners from temporary strip markers.
-            taggedLine.text = line.replace(/\uF8FF/g, '\u200D');
+            const taggedLine = taggedLineFromBidi(line);
             taggedLine.sections = logicalInput.sections;
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            for (const char of splitByGraphemeCluster(line)) {
-                taggedLine.sectionIndex.push(0);
-            }
+            taggedLine.sectionIndex.push(...Array(splitByGraphemeCluster(taggedLine.text).length).fill(0));
             lines.push(taggedLine);
         }
     } else if (processStyledBidirectionalText) {
         // Need version of mapbox-gl-rtl-text with style support for combining RTL text
         // with formatting
         lines = [];
-        // ICU operates on code units.
-        lineBreaks = lineBreaks.map(index => logicalInput.toCodeUnitIndex(index));
-        // Replace zero-width joiners with temporary strip markers (from the Private Use Area) to prevent ICU from stripping them out.
-        const markedInput = logicalInput.toString().replace(/\u200D/g, '\uF8FF');
+        const markedInput = prepareBidiInput(logicalInput.toString());
 
         // Convert grapheme cluster–based section index to be based on code units.
         let i = 0;
@@ -304,17 +324,15 @@ function shapeText(
             i++;
         }
 
+        adjustLineBreaks();
         const processedLines =
             processStyledBidirectionalText(markedInput, sectionIndex, lineBreaks);
         for (const line of processedLines) {
-            const taggedLine = new TaggedString();
-            // Restore zero-width joiners from temporary strip markers.
-            taggedLine.text = line[0].replace(/\uF8FF/g, '\u200D');
-            taggedLine.sections = logicalInput.sections;
-            let elapsedChars = '';
-            for (const grapheme of splitByGraphemeCluster(line[0])) {
-                taggedLine.sectionIndex.push(line[1][elapsedChars.length]);
-                elapsedChars += grapheme;
+            const taggedLine = taggedLineFromBidi(line[0]);
+            let i = 0;
+            for (const grapheme of splitByGraphemeCluster(taggedLine.text)) {
+                taggedLine.sectionIndex.push(line[1][i]);
+                i += grapheme.length;
             }
             lines.push(taggedLine);
         }
