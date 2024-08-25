@@ -50,10 +50,7 @@ export function allowsVerticalWritingMode(chars: string) {
 }
 
 export function allowsLetterSpacing(chars: string) {
-    for (const char of chars) {
-        if (!charAllowsLetterSpacing(char.codePointAt(0))) return false;
-    }
-    return true;
+    return !cursiveScriptRegExp.test(chars);
 }
 
 /**
@@ -86,10 +83,6 @@ const cursiveScriptCodes = [
 ];
 
 const cursiveScriptRegExp = sanitizedRegExpFromScriptCodes(cursiveScriptCodes);
-
-export function charAllowsLetterSpacing(char: number) {
-    return !cursiveScriptRegExp.test(String.fromCodePoint(char));
-}
 
 /**
  * ISO 15924 script codes of scripts that allow ideographic line breaking beyond
