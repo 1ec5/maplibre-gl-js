@@ -61,7 +61,7 @@ function sanitizedRegExpFromScriptCodes(scriptCodes: Array<string>): RegExp {
             return null;
         }
     }).filter(pe => pe);
-    return new RegExp(supportedPropertyEscapes.join('|'), 'u');
+    return new RegExp(`[${supportedPropertyEscapes.join('')}]`, 'u');
 }
 
 /**
