@@ -292,6 +292,11 @@ function shapeText(
         const taggedLine = new TaggedString();
         // Restore zero-width joiners from temporary strip markers.
         taggedLine.text = line.replaceAll(stripMarker, '\u200D');
+        // Append kashida/tatweel to Arabic text as alternative to letter spacing.
+        if (/\p{sc=Arab}/u.test(taggedLine.text)) {
+            const numKashidas = Math.floor(spacing / ONE_EM) * splitByGraphemeCluster(taggedLine.text).length;
+            taggedLine.text = '\u0640'.repeat(numKashidas) + taggedLine.text;
+        }
         taggedLine.sections = logicalInput.sections;
         return taggedLine;
     };
@@ -331,7 +336,8 @@ function shapeText(
             const taggedLine = taggedLineFromBidi(line[0]);
             let i = 0;
             for (const grapheme of splitByGraphemeCluster(taggedLine.text)) {
-                taggedLine.sectionIndex.push(line[1][i]);
+                // Fall back to the last section for kashida.
+                taggedLine.sectionIndex.push(line[1][i] || sectionIndex.at(-1));
                 i += grapheme.length;
             }
             lines.push(taggedLine);
@@ -757,13 +763,14 @@ function shapeLines(shaping: Shaping,
                 }
             }
 
+            let graphemeSpacing = /[\p{sc=Arab}\u0640]/u.test(grapheme) ? 0 : spacing;
             if (!vertical) {
                 positionedGlyphs.push({glyph: grapheme, imageName, x, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
-                x += metrics.advance * section.scale + spacing;
+                x += metrics.advance * section.scale + graphemeSpacing;
             } else {
                 shaping.verticalizable = true;
                 positionedGlyphs.push({glyph: grapheme, imageName, x, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
-                x += verticalAdvance * section.scale + spacing;
+                x += verticalAdvance * section.scale + graphemeSpacing;
             }
 
             i++;

@@ -68,7 +68,6 @@ function sanitizedRegExpFromScriptCodes(scriptCodes: Array<string>): RegExp {
  * In general, cursive scripts are incompatible with letter spacing.
  */
 const cursiveScriptCodes = [
-    'Arab', // Arabic
     'Dupl', // Duployan
     'Mong', // Mongolian
     'Ougr', // Old Uyghur

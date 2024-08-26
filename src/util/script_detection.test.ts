@@ -40,19 +40,23 @@ describe('allowsLetterSpacing', () => {
         expect(allowsLetterSpacing('A')).toBe(true);
     });
 
-    test('disallows ideographic breaking of Arabic text', () => {
+    test('allows ideographic breaking of Arabic text', () => {
         // Arabic
-        expect(allowsLetterSpacing('۳')).toBe(false);
+        expect(allowsLetterSpacing('۳')).toBe(true);
         // Arabic Supplement
-        expect(allowsLetterSpacing('ݣ')).toBe(false);
+        expect(allowsLetterSpacing('ݣ')).toBe(true);
         // Arabic Extended-A
-        expect(allowsLetterSpacing('ࢳ')).toBe(false);
+        expect(allowsLetterSpacing('ࢳ')).toBe(true);
         // Arabic Extended-B
-        expect(allowsLetterSpacing('࢐')).toBe(false);
+        expect(allowsLetterSpacing('࢐')).toBe(true);
         // Arabic Presentation Forms-A
-        expect(allowsLetterSpacing('ﰤ')).toBe(false);
+        expect(allowsLetterSpacing('ﰤ')).toBe(true);
         // Arabic Presentation Forms-B
-        expect(allowsLetterSpacing('ﺽ')).toBe(false);
+        expect(allowsLetterSpacing('ﺽ')).toBe(true);
+    });
+
+    test('disallows ideographic breaking of Mongolian text', () => {
+        expect(allowsLetterSpacing('ᠦᠪᠦᠷ ᠮᠣᠩᠭᠤᠯ ᠤᠨ ᠥᠪᠡᠷᠲᠡᠭᠡᠨ ᠵᠠᠰᠠᠬᠣ ᠣᠷᠣᠨ')).toBe(false);
     });
 });
 

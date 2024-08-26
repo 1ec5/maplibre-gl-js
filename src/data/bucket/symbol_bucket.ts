@@ -422,7 +422,8 @@ export class SymbolBucket implements Bucket {
         stack: {[_: string]: boolean},
         textAlongLine: boolean,
         allowVerticalPlacement: boolean,
-        doesAllowVerticalWritingMode: boolean) {
+        doesAllowVerticalWritingMode: boolean,
+        spacingEm: number) {
 
         for (const grapheme of splitByGraphemeCluster(text)) {
             stack[grapheme] = true;
@@ -432,6 +433,11 @@ export class SymbolBucket implements Bucket {
                     stack[grapheme] = true;
                 }
             }
+        }
+
+        // Letter-spaced Arabic text requires kashida/tatweel. 
+        if (/\p{sc=Arab}/u.test(text) && spacingEm > 0) {
+            stack['\u0640'] = true;
         }
     }
 
@@ -535,12 +541,13 @@ export class SymbolBucket implements Bucket {
                 const fontStack = textFont.evaluate(evaluationFeature, {}, canonical).join(',');
                 const textAlongLine = layout.get('text-rotation-alignment') !== 'viewport' && layout.get('symbol-placement') !== 'point';
                 this.allowVerticalPlacement = this.writingModes && this.writingModes.indexOf(WritingMode.vertical) >= 0;
+                const spacingEm = layout.get('text-letter-spacing').evaluate(evaluationFeature, {}, canonical);
                 for (const section of text.sections) {
                     if (!section.image) {
                         const doesAllowVerticalWritingMode = allowsVerticalWritingMode(text.toString());
                         const sectionFont = section.fontStack || fontStack;
                         const sectionStack = stacks[sectionFont] = stacks[sectionFont] || {};
-                        this.calculateGlyphDependencies(section.text, sectionStack, textAlongLine, this.allowVerticalPlacement, doesAllowVerticalWritingMode);
+                        this.calculateGlyphDependencies(section.text, sectionStack, textAlongLine, this.allowVerticalPlacement, doesAllowVerticalWritingMode, spacingEm);
                     } else {
                         // Add section image to the list of dependencies.
                         icons[section.image.name] = true;
