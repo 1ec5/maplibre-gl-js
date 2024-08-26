@@ -38,7 +38,6 @@ describe('Worker RTLTextPlugin', () => {
         worker = new Worker(_self);
         global.fetch = null;
         rtlWorkerPlugin.setMethods({
-            applyArabicShaping: null,
             processBidirectionalText: null,
             processStyledBidirectionalText: null
         });
@@ -49,13 +48,11 @@ describe('Worker RTLTextPlugin', () => {
 
     test('should not throw and set values in plugin', () => {
         const rtlTextPlugin = {
-            applyArabicShaping: 'test',
             processBidirectionalText: 'test',
             processStyledBidirectionalText: 'test',
         };
 
         _self.registerRTLTextPlugin(rtlTextPlugin);
-        expect(rtlWorkerPlugin.applyArabicShaping).toBe('test');
         expect(rtlWorkerPlugin.processBidirectionalText).toBe('test');
         expect(rtlWorkerPlugin.processStyledBidirectionalText).toBe('test');
     });
@@ -66,7 +63,6 @@ describe('Worker RTLTextPlugin', () => {
         });
 
         const rtlTextPlugin = {
-            applyArabicShaping: jest.fn(),
             processBidirectionalText: jest.fn(),
             processStyledBidirectionalText: jest.fn(),
         };

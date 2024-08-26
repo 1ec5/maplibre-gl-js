@@ -426,6 +426,14 @@ export class SymbolBucket implements Bucket {
 
         for (const grapheme of splitByGraphemeCluster(text)) {
             stack[grapheme] = true;
+            if (/\p{sc=Arab}/u.test(grapheme)) {
+                // Depend on all four forms of an Arabic letter, just in case.
+                const tatweel = '\u0640';
+                stack[tatweel] = true; // isolated
+                stack[grapheme + tatweel] = true; // initial
+                stack[tatweel + grapheme + tatweel] = true; // medial
+                stack[tatweel + grapheme] = true; // final
+            }
             if ((textAlongLine || allowVerticalPlacement) && doesAllowVerticalWritingMode) {
                 const verticalChar = verticalizedCharacterMap[grapheme];
                 if (verticalChar) {

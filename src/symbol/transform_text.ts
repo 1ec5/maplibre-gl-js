@@ -1,5 +1,3 @@
-import {rtlWorkerPlugin} from '../source/rtl_text_plugin_worker';
-
 import type {SymbolStyleLayer} from '../style/style_layer/symbol_style_layer';
 import type {Feature} from '@maplibre/maplibre-gl-style-spec';
 import {Formatted} from '@maplibre/maplibre-gl-style-spec';
@@ -11,11 +9,6 @@ function transformTextInternal(text: string, layer: SymbolStyleLayer, feature: F
     } else if (transform === 'lowercase') {
         text = text.toLocaleLowerCase();
     }
-
-    if (rtlWorkerPlugin.applyArabicShaping) {
-        text = rtlWorkerPlugin.applyArabicShaping(text);
-    }
-
     return text;
 }
 
