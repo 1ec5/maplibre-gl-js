@@ -1,6 +1,5 @@
 import {
     charHasUprightVerticalOrientation,
-    charAllowsIdeographicBreaking,
     charInComplexShapingScript,
     rtlScriptRegExp,
     splitByGraphemeCluster
@@ -70,6 +69,14 @@ function isEmpty(positionedLines: Array<PositionedLine>) {
 }
 
 const rtlCombiningMarkRegExp = new RegExp(`(${rtlScriptRegExp.source})([\\p{gc=Mn}\\p{gc=Mc}])`, 'gu');
+const wordSegmenter = ('Segmenter' in Intl) ? new Intl.Segmenter(undefined, {granularity: 'word'}) : {
+    segment: (text: String) => {
+        return text.split(/\b/u).map((segment, index) => ({
+            index,
+            segment,
+        }));
+    },
+};
 
 export type SymbolAnchor = 'center' | 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 export type TextJustify = 'left' | 'center' | 'right';
@@ -373,34 +380,6 @@ const whitespace: {
     [0x20]: true, // space
 };
 
-const breakable: {
-    [_: number]: boolean;
-} = {
-    [0x0a]: true, // newline
-    [0x20]: true, // space
-    [0x26]: true, // ampersand
-    [0x29]: true, // right parenthesis
-    [0x2b]: true, // plus sign
-    [0x2d]: true, // hyphen-minus
-    [0x2f]: true, // solidus
-    [0xad]: true, // soft hyphen
-    [0xb7]: true, // middle dot
-    [0x200b]: true, // zero-width space
-    [0x2010]: true, // hyphen
-    [0x2013]: true, // en dash
-    [0x2027]: true  // interpunct
-    // Many other characters may be reasonable breakpoints
-    // Consider "neutral orientation" characters at scriptDetection.charHasNeutralVerticalOrientation
-    // See https://github.com/mapbox/mapbox-gl-js/issues/3658
-};
-
-// Allow breaks depending on the following character
-const breakableBefore: {
-    [_: number]: boolean;
-} = {
-    [0x28]: true, // left parenthesis
-};
-
 function getGlyphAdvance(
     grapheme: string,
     section: SectionOptions,
@@ -465,16 +444,11 @@ function calculateBadness(lineWidth: number,
     return raggedness + Math.abs(penalty) * penalty;
 }
 
-function calculatePenalty(codePoint: number, nextCodePoint: number, penalizableIdeographicBreak: boolean) {
+function calculatePenalty(codePoint: number, nextCodePoint: number) {
     let penalty = 0;
     // Force break on newline
     if (codePoint === 0x0a) {
         penalty -= 10000;
-    }
-    // Penalize breaks between characters that allow ideographic breaking because
-    // they are less preferable than breaks at spaces (or zero width spaces).
-    if (penalizableIdeographicBreak) {
-        penalty += 150;
     }
 
     // Penalize open parenthesis at end of line
@@ -555,49 +529,28 @@ export function determineLineBreaks(
     const potentialLineBreaks = [];
     const targetWidth = determineAverageLineWidth(logicalInput, spacing, maxWidth, glyphMap, imagePositions, layoutTextSize);
 
-    const hasServerSuggestedBreakpoints = logicalInput.text.indexOf('\u200b') >= 0;
-
     let currentX = 0;
-
-    let i = 0;
-    const chars = splitByGraphemeCluster(logicalInput.text)[Symbol.iterator]();
-    let char = chars.next();
-    const nextChars = splitByGraphemeCluster(logicalInput.text)[Symbol.iterator]();
-    nextChars.next();
-    let nextChar = nextChars.next();
-    const nextNextChars = splitByGraphemeCluster(logicalInput.text)[Symbol.iterator]();
-    nextNextChars.next();
-    nextNextChars.next();
-    let nextNextChar = nextNextChars.next();
-
-    while (!char.done) {
-        const section = logicalInput.getSection(i);
-        const segment = char.value;
-        const codePoint = segment.codePointAt(0);
-        if (!whitespace[codePoint]) currentX += getGlyphAdvance(segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
-
-        // Ideographic characters, spaces, and word-breaking punctuation that often appear without
-        // surrounding spaces.
-        if (!nextChar.done) {
-            const ideographicBreak = charAllowsIdeographicBreaking(codePoint);
-            const nextSegment = nextChar.value;
-            const nextCodePoint = nextSegment.codePointAt(0);
-            if (breakable[codePoint] || ideographicBreak || section.imageName || (!nextNextChar.done && breakableBefore[nextCodePoint])) {
-
-                potentialLineBreaks.push(
-                    evaluateBreak(
-                        i + 1,
-                        currentX,
-                        targetWidth,
-                        potentialLineBreaks,
-                        calculatePenalty(codePoint, nextCodePoint, ideographicBreak && hasServerSuggestedBreakpoints),
-                        false));
+    let graphemeIndex = 0;
+    for (const {index: wordIndex, segment: word} of wordSegmenter.segment(logicalInput.text)) {
+        const graphemes = splitByGraphemeCluster(word);
+        for (const grapheme of graphemes) {
+            const section = logicalInput.getSection(graphemeIndex);
+            if (!!grapheme.trim()) {
+                currentX += getGlyphAdvance(grapheme, section, glyphMap, imagePositions, spacing, layoutTextSize);
             }
+            graphemeIndex++;
         }
-        i++;
-        char = chars.next();
-        nextChar = nextChars.next();
-        nextNextChar = nextNextChars.next();
+
+        const nextWordIndex = wordIndex + word.length;
+        const lastCodePoint = graphemes.at(-1).codePointAt(0);
+        const nextWordCodePoint = logicalInput.text.codePointAt(nextWordIndex);
+        if (!nextWordCodePoint) {
+            continue;
+        }
+
+        const penalty = calculatePenalty(lastCodePoint, nextWordCodePoint);
+        const lineBreak = evaluateBreak(graphemeIndex, currentX, targetWidth, potentialLineBreaks, penalty, false)
+        potentialLineBreaks.push(lineBreak);
     }
 
     return leastBadBreaks(

@@ -35,13 +35,6 @@ export function splitByGraphemeCluster(text: string) {
     return baseSegments;
 }
 
-export function allowsIdeographicBreaking(chars: string) {
-    for (const char of chars) {
-        if (!charAllowsIdeographicBreaking(char.codePointAt(0))) return false;
-    }
-    return true;
-}
-
 export function allowsVerticalWritingMode(chars: string) {
     for (const char of chars) {
         if (charHasUprightVerticalOrientation(char.codePointAt(0))) return true;
@@ -100,30 +93,6 @@ const ideographicBreakingScriptCodes = [
 ];
 
 const ideographicBreakingRegExp = sanitizedRegExpFromScriptCodes(ideographicBreakingScriptCodes);
-
-export function charAllowsIdeographicBreaking(char: number) {
-    // Return early for characters outside all ideographic ranges.
-    if (char < 0x2E80) return false;
-
-    if (isChar['CJK Compatibility'](char)) return true;
-    if (isChar['CJK Compatibility Forms'](char)) return true;
-    if (isChar['CJK Radicals Supplement'](char)) return true;
-    if (isChar['CJK Strokes'](char)) return true;
-    if (isChar['CJK Symbols and Punctuation'](char)) return true;
-    if (isChar['Enclosed CJK Letters and Months'](char)) return true;
-    if (isChar['Enclosed Ideographic Supplement'](char)) return true;
-    if (isChar['Halfwidth and Fullwidth Forms'](char)) return true;
-    if (isChar['Ideographic Description Characters'](char)) return true;
-    if (isChar['Ideographic Symbols and Punctuation'](char)) return true;
-    if (isChar['Kana Extended-A'](char)) return true;
-    if (isChar['Kana Extended-B'](char)) return true;
-    if (isChar['Kana Supplement'](char)) return true;
-    if (isChar['Kangxi Radicals'](char)) return true;
-    if (isChar['Katakana Phonetic Extensions'](char)) return true;
-    if (isChar['Small Kana Extension'](char)) return true;
-    if (isChar['Vertical Forms'](char)) return true;
-    return ideographicBreakingRegExp.test(String.fromCodePoint(char));
-}
 
 // The following logic comes from
 // <https://www.unicode.org/Public/16.0.0/ucd/VerticalOrientation.txt>.
@@ -227,9 +196,25 @@ export function charHasUprightVerticalOrientation(char: number) {
     if (/* Canadian Aboriginal */ /\p{sc=Cans}/u.test(String.fromCodePoint(char))) return true;
     if (/* Egyptian Hieroglyphs */ /\p{sc=Egyp}/u.test(String.fromCodePoint(char))) return true;
     if (/* Hangul */ /\p{sc=Hang}/u.test(String.fromCodePoint(char))) return true;
-    if (charAllowsIdeographicBreaking(char)) return true;
 
-    return false;
+    if (isChar['CJK Compatibility'](char)) return true;
+    if (isChar['CJK Compatibility Forms'](char)) return true;
+    if (isChar['CJK Radicals Supplement'](char)) return true;
+    if (isChar['CJK Strokes'](char)) return true;
+    if (isChar['CJK Symbols and Punctuation'](char)) return true;
+    if (isChar['Enclosed CJK Letters and Months'](char)) return true;
+    if (isChar['Enclosed Ideographic Supplement'](char)) return true;
+    if (isChar['Halfwidth and Fullwidth Forms'](char)) return true;
+    if (isChar['Ideographic Description Characters'](char)) return true;
+    if (isChar['Ideographic Symbols and Punctuation'](char)) return true;
+    if (isChar['Kana Extended-A'](char)) return true;
+    if (isChar['Kana Extended-B'](char)) return true;
+    if (isChar['Kana Supplement'](char)) return true;
+    if (isChar['Kangxi Radicals'](char)) return true;
+    if (isChar['Katakana Phonetic Extensions'](char)) return true;
+    if (isChar['Small Kana Extension'](char)) return true;
+    if (isChar['Vertical Forms'](char)) return true;
+    return ideographicBreakingRegExp.test(String.fromCodePoint(char));
 }
 
 /**
