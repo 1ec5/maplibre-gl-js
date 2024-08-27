@@ -18,7 +18,9 @@ type Entry = {
     ranges: {
         [range: number]: boolean | null;
     };
-    tinySDF?: TinySDF;
+    tinySDFs: {
+        [baseline: string]: TinySDF;
+    };
 };
 
 export class GlyphManager {
@@ -75,7 +77,8 @@ export class GlyphManager {
             entry = this.entries[stack] = {
                 glyphs: {},
                 requests: {},
-                ranges: {}
+                ranges: {},
+                tinySDFs: {}
             };
         }
 
@@ -147,7 +150,14 @@ export class GlyphManager {
         const textureScale = 2;
         const buffer = 10;
 
-        let tinySDF = entry.tinySDF;
+        let textBaseline = 'alphabetic';
+        if (/\p{sc=Beng}|\p{sc=Deva}|\p{sc=Guru}|\p{sc=Orya}|\p{sc=Phag}|\p{sc=Tibt}/u.test(grapheme)) {
+            textBaseline = 'hanging';
+        } else if (/\p{Ideo}/u.test(grapheme)) {
+            textBaseline = 'ideographic';
+        }
+
+        let tinySDF = entry.tinySDFs[textBaseline];
         if (!tinySDF) {
             let fontStyle = 'normal';
             if (/italic/i.test(stack)) {
@@ -163,14 +173,16 @@ export class GlyphManager {
             } else if (/light/i.test(stack)) {
                 fontWeight = '200';
             }
-            tinySDF = entry.tinySDF = new GlyphManager.TinySDF({
+
+            tinySDF = entry.tinySDFs[textBaseline] = new GlyphManager.TinySDF({
                 fontSize: 24 * textureScale,
                 buffer: buffer * textureScale,
                 radius: 8 * textureScale,
                 cutoff: 0.25,
                 fontFamily,
                 fontStyle,
-                fontWeight
+                fontWeight,
+                textBaseline
             });
         }
 
@@ -185,7 +197,7 @@ export class GlyphManager {
                 width: isControl ? 0 : (char.glyphWidth / textureScale || 24),
                 height: char.glyphHeight / textureScale || 24,
                 left: (char.glyphLeft - buffer) / textureScale || 0,
-                top: char.glyphTop / textureScale || 0,
+                top: (char.glyphTop - char.glyphBaseline) / textureScale || 0,
                 advance: isControl ? 0 : (char.glyphAdvance / textureScale || 24),
                 isDoubleResolution: true
             }
