@@ -17,7 +17,7 @@ describe('allowsLetterSpacing', () => {
         expect(allowsLetterSpacing('A')).toBe(true);
     });
 
-    test('disallows ideographic breaking of Arabic text', () => {
+    test('disallows letter spacing of Arabic text', () => {
         // Arabic
         expect(allowsLetterSpacing('۳')).toBe(false);
         // Arabic Supplement
