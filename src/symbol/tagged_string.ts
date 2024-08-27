@@ -34,35 +34,19 @@ type Break = {
     badness: number;
 };
 
-// using computed properties due to https://github.com/facebook/flow/issues/380
-/* eslint no-useless-computed-key: 0 */
-
-const breakable: {
-    [_: number]: boolean;
-} = {
-    [0x0a]: true, // newline
-    [0x20]: true, // space
-    [0x26]: true, // ampersand
-    [0x29]: true, // right parenthesis
-    [0x2b]: true, // plus sign
-    [0x2d]: true, // hyphen-minus
-    [0x2f]: true, // solidus
-    [0xad]: true, // soft hyphen
-    [0xb7]: true, // middle dot
-    [0x200b]: true, // zero-width space
-    [0x2010]: true, // hyphen
-    [0x2013]: true, // en dash
-    [0x2027]: true  // interpunct
-    // Many other characters may be reasonable breakpoints
-    // Consider "neutral orientation" characters in codePointHasNeutralVerticalOrientation in unicode_properties
-    // See https://github.com/mapbox/mapbox-gl-js/issues/3658
-};
-
-// Allow breaks depending on the following character
-const breakableBefore: {
-    [_: number]: boolean;
-} = {
-    [0x28]: true, // left parenthesis
+const wordSegmenter = ('Segmenter' in Intl) ? new Intl.Segmenter(undefined, {granularity: 'word'}) : {
+    // Polyfill for Intl.Segmenter with word granularity for the purpose of line breaking
+    segment: (text: String) => {
+        // Prefer breaking on an individual CJKV ideograph instead of keeping the entire run of CJKV together.
+        const segments = text.split(/\b|(?=\p{Ideo})/u).map((segment, index) => ({
+            index,
+            segment,
+        }));
+        return {
+            containing: (index: number) => segments.find(s => s.index <= index && s.index + s.segment.length > index),
+            [Symbol.iterator]: () => segments[Symbol.iterator](),
+        };
+    },
 };
 
 function getGlyphAdvance(
@@ -106,16 +90,11 @@ function calculateBadness(lineWidth: number,
     return raggedness + Math.abs(penalty) * penalty;
 }
 
-function calculatePenalty(codePoint: number, nextCodePoint: number, penalizableIdeographicBreak: boolean) {
+function calculatePenalty(codePoint: number, nextCodePoint: number) {
     let penalty = 0;
     // Force break on newline
     if (codePoint === 0x0a) {
         penalty -= 10000;
-    }
-    // Penalize breaks between characters that allow ideographic breaking because
-    // they are less preferable than breaks at spaces (or zero width spaces).
-    if (penalizableIdeographicBreak) {
-        penalty += 150;
     }
 
     // Penalize open parenthesis at end of line
@@ -212,16 +191,6 @@ export class TaggedString {
 
     verticalizePunctuation() {
         this.text = verticalizePunctuation(this.text);
-    }
-
-    /**
-     * Returns whether the text contains zero-width spaces.
-     *
-     * Some tilesets such as Mapbox Streets insert ZWSPs as hints for line
-     * breaking in CJK text.
-     */
-    hasZeroWidthSpaces(): boolean {
-        return this.text.includes('\u200b');
     }
 
     trim() {
@@ -331,50 +300,28 @@ export class TaggedString {
         const potentialLineBreaks = [];
         const targetWidth = this.determineAverageLineWidth(spacing, maxWidth, glyphMap, imagePositions, layoutTextSize);
 
-        const hasZeroWidthSpaces = this.hasZeroWidthSpaces();
-
         let currentX = 0;
-
-        let i = 0;
-        const chars = splitByGraphemeCluster(this.text)[Symbol.iterator]();
-        let char = chars.next();
-        const nextChars = splitByGraphemeCluster(this.text)[Symbol.iterator]();
-        nextChars.next();
-        let nextChar = nextChars.next();
-        const nextNextChars = splitByGraphemeCluster(this.text)[Symbol.iterator]();
-        nextNextChars.next();
-        nextNextChars.next();
-        let nextNextChar = nextNextChars.next();
-
-        while (!char.done) {
-            const section = this.getSection(i);
-            const segment = char.value.segment;
-            const codePoint = segment.codePointAt(0);
-
-            if (!charIsWhitespace(codePoint)) currentX += getGlyphAdvance(segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
-
-            // Ideographic characters, spaces, and word-breaking punctuation that often appear without
-            // surrounding spaces.
-            if (!nextChar.done) {
-                const ideographicBreak = codePointAllowsIdeographicBreaking(codePoint);
-                const nextSegment = nextChar.value.segment;
-                const nextCodePoint = nextSegment.codePointAt(0);
-                if (breakable[codePoint] || ideographicBreak || 'imageName' in section || (!nextNextChar.done && breakableBefore[nextCodePoint])) {
-
-                    potentialLineBreaks.push(
-                        evaluateBreak(
-                            i + 1,
-                            currentX,
-                            targetWidth,
-                            potentialLineBreaks,
-                            calculatePenalty(codePoint, nextCodePoint, ideographicBreak && hasZeroWidthSpaces),
-                            false));
+        let graphemeIndex = 0;
+        for (const {index: wordIndex, segment: word} of wordSegmenter.segment(this.text)) {
+            const graphemes = splitByGraphemeCluster(word);
+            for (const {segment: grapheme} of graphemes) {
+                const section = this.getSection(graphemeIndex);
+                if (grapheme.trim()) {
+                    currentX += getGlyphAdvance(grapheme, section, glyphMap, imagePositions, spacing, layoutTextSize);
                 }
+                graphemeIndex++;
             }
-            i++;
-            char = chars.next();
-            nextChar = nextChars.next();
-            nextNextChar = nextNextChars.next();
+
+            const nextWordIndex = wordIndex + word.length;
+            const lastCodePoint = graphemes.at(-1).segment.codePointAt(0);
+            const nextWordCodePoint = this.text.codePointAt(nextWordIndex);
+            if (!nextWordCodePoint) {
+                continue;
+            }
+
+            const penalty = calculatePenalty(lastCodePoint, nextWordCodePoint);
+            const lineBreak = evaluateBreak(graphemeIndex, currentX, targetWidth, potentialLineBreaks, penalty, false);
+            potentialLineBreaks.push(lineBreak);
         }
 
         return leastBadBreaks(

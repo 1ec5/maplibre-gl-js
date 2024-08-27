@@ -1,17 +1,20 @@
 import {
     canCombineGraphemes,
-    codePointAllowsIdeographicBreaking,
     codePointHasUprightVerticalOrientation,
     codePointHasNeutralVerticalOrientation,
     codePointRequiresComplexTextShaping
 } from '../util/unicode_properties.g';
 
 export const segmenter = ('Segmenter' in Intl) ? new Intl.Segmenter() : {
-    segment: (text: String) => {
-        return [...text].map((char, index) => ({
+    segment: (text: string) => {
+        const segments = [...text].map((char, index) => ({
             index,
             segment: char,
         }));
+        return {
+            containing: (index: number) => segments.find(s => s.index <= index && s.index + s.segment.length > index),
+            [Symbol.iterator]: () => segments[Symbol.iterator](),
+        };
     },
 };
 
@@ -40,13 +43,6 @@ export function splitByGraphemeCluster(text: string) {
     }
 
     return baseSegments;
-}
-
-export function allowsIdeographicBreaking(chars: string) {
-    for (const char of chars) {
-        if (!codePointAllowsIdeographicBreaking(char.codePointAt(0))) return false;
-    }
-    return true;
 }
 
 export function allowsVerticalWritingMode(chars: string) {

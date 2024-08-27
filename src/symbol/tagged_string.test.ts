@@ -18,13 +18,6 @@ describe('TaggedString', () => {
         });
     });
 
-    describe('hasZeroWidthSpaces', () => {
-        test('detects a zero width space', () => {
-            const tagged = new TaggedString('三三\u200b三三\u200b三三\u200b三三三三三三\u200b三三');
-            expect(tagged.hasZeroWidthSpaces()).toBeTruthy();
-        });
-    });
-
     describe('trim', () => {
         test('turns a whitespace-only string into the empty string', () => {
             const tagged = new TaggedString('  \t    \v ', [textSection], Array(9).fill(0));
