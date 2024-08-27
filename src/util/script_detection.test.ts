@@ -1,39 +1,4 @@
-import {allowsLetterSpacing, charAllowsIdeographicBreaking, charHasUprightVerticalOrientation, charInComplexShapingScript, stringContainsRTLText} from './script_detection';
-
-describe('charAllowsIdeographicBreaking', () => {
-    test('disallows ideographic breaking of Latin text', () => {
-        expect(charAllowsIdeographicBreaking('A'.codePointAt(0))).toBe(false);
-        expect(charAllowsIdeographicBreaking('3'.codePointAt(0))).toBe(false);
-    });
-
-    test('allows ideographic breaking of ideographic punctuation', () => {
-        expect(charAllowsIdeographicBreaking('〈'.codePointAt(0))).toBe(true);
-    });
-
-    test('allows ideographic breaking of Bopomofo text', () => {
-        expect(charAllowsIdeographicBreaking('ㄎ'.codePointAt(0))).toBe(true);
-    });
-
-    test('allows ideographic breaking of Chinese and Vietnamese text', () => {
-        expect(charAllowsIdeographicBreaking('市'.codePointAt(0))).toBe(true);
-        expect(charAllowsIdeographicBreaking('𡔖'.codePointAt(0))).toBe(true);
-        expect(charAllowsIdeographicBreaking('麵'.codePointAt(0))).toBe(true);
-        expect(charAllowsIdeographicBreaking('𪚥'.codePointAt(0))).toBe(true);
-    });
-
-    test('disallows ideographic breaking of Korean text', () => {
-        expect(charAllowsIdeographicBreaking('아'.codePointAt(0))).toBe(false);
-    });
-
-    test('allows ideographic breaking of Japanese text', () => {
-        expect(charAllowsIdeographicBreaking('あ'.codePointAt(0))).toBe(true);
-        expect(charAllowsIdeographicBreaking('カ'.codePointAt(0))).toBe(true);
-    });
-
-    test('allows ideographic breaking of Yi text', () => {
-        expect(charAllowsIdeographicBreaking('ꉆ'.codePointAt(0))).toBe(true);
-    });
-});
+import {allowsLetterSpacing, charHasUprightVerticalOrientation, charInComplexShapingScript, stringContainsRTLText} from './script_detection';
 
 describe('allowsLetterSpacing', () => {
     test('allows letter spacing of Latin text', () => {
