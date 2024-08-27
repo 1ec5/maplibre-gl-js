@@ -715,8 +715,9 @@ function shapeLines(shaping: Shaping,
                 x += metrics.advance * section.scale + spacing;
             } else {
                 shaping.verticalizable = true;
-                positionedGlyphs.push({glyph: grapheme, imageName, x, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
-                x += verticalAdvance * section.scale + spacing;
+                const advance = verticalAdvance * section.scale + spacing;
+                positionedGlyphs.push({glyph: grapheme, imageName, x: x + advance, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
+                x += advance;
             }
 
             i++;
