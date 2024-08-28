@@ -300,28 +300,26 @@ export class TaggedString {
         const potentialLineBreaks = [];
         const targetWidth = this.determineAverageLineWidth(spacing, maxWidth, glyphMap, imagePositions, layoutTextSize);
 
+        const graphemes = splitByGraphemeCluster(this.text);
+        const words = wordSegmenter.segment(this.text);
         let currentX = 0;
-        let graphemeIndex = 0;
-        for (const {index: wordIndex, segment: word} of wordSegmenter.segment(this.text)) {
-            const graphemes = splitByGraphemeCluster(word);
-            for (const {segment: grapheme} of graphemes) {
-                const section = this.getSection(graphemeIndex);
-                if (grapheme.trim()) {
-                    currentX += getGlyphAdvance(grapheme, section, glyphMap, imagePositions, spacing, layoutTextSize);
-                }
-                graphemeIndex++;
+        for (const [i, grapheme] of graphemes.entries()) {
+            // Check whether the grapheme cluster immediately follows a word boundary.
+            const prevWord = words.containing(grapheme.index - 1);
+            const word = words.containing(grapheme.index);
+            if (prevWord && prevWord.index !== word.index) {
+                // Score the line breaking opportunity based on the characters immediately before and after the word boundary.
+                const prevCodePoint = this.text.codePointAt(grapheme.index - 1);
+                const firstCodePoint = grapheme.segment.codePointAt(0);
+                const penalty = calculatePenalty(prevCodePoint, firstCodePoint);
+                const lineBreak = evaluateBreak(i, currentX, targetWidth, potentialLineBreaks, penalty, false);
+                potentialLineBreaks.push(lineBreak);
             }
 
-            const nextWordIndex = wordIndex + word.length;
-            const lastCodePoint = graphemes.at(-1).segment.codePointAt(0);
-            const nextWordCodePoint = this.text.codePointAt(nextWordIndex);
-            if (!nextWordCodePoint) {
-                continue;
+            const section = this.getSection(i);
+            if (grapheme.segment.trim()) {
+                currentX += getGlyphAdvance(grapheme.segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
             }
-
-            const penalty = calculatePenalty(lastCodePoint, nextWordCodePoint);
-            const lineBreak = evaluateBreak(graphemeIndex, currentX, targetWidth, potentialLineBreaks, penalty, false);
-            potentialLineBreaks.push(lineBreak);
         }
 
         return leastBadBreaks(
