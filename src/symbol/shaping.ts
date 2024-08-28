@@ -392,6 +392,7 @@ function getGlyphAdvance(
     spacing: number,
     layoutTextSize: number
 ): number {
+    if (!section) console.log('getGlyphAdvance', grapheme, section);
     if (!section.imageName) {
         const positions = glyphMap[section.fontStack];
         const glyph = positions && positions[grapheme];
@@ -533,8 +534,10 @@ export function determineLineBreaks(
     let graphemeIndex = 0;
     for (const {index: wordIndex, segment: word} of wordSegmenter.segment(logicalInput.text)) {
         const graphemes = splitByGraphemeCluster(word);
+        let section;
         for (const grapheme of graphemes) {
-            const section = logicalInput.getSection(graphemeIndex);
+            // Grapheme cluster could be split across a word boundary. Fall back to the last known section.
+            section = logicalInput.getSection(graphemeIndex) || section;
             if (!!grapheme.trim()) {
                 currentX += getGlyphAdvance(grapheme, section, glyphMap, imagePositions, spacing, layoutTextSize);
             }
