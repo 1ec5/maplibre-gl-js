@@ -1,13 +1,11 @@
 import {PluginState, RTLPluginStatus} from './rtl_text_plugin_status';
 
 export interface RTLTextPlugin {
-    applyArabicShaping: (a: string) => string;
     processBidirectionalText: ((b: string, a: Array<number>) => Array<string>);
     processStyledBidirectionalText: ((c: string, b: Array<number>, a: Array<number>) => Array<[string, Array<number>]>);
 }
 
 class RTLWorkerPlugin implements RTLTextPlugin {
-    applyArabicShaping: (a: string) => string = null;
     processBidirectionalText: ((b: string, a: Array<number>) => Array<string>) = null;
     processStyledBidirectionalText: ((c: string, b: Array<number>, a: Array<number>) => Array<[string, Array<number>]>) = null;
     pluginStatus: RTLPluginStatus = 'unavailable';
@@ -26,14 +24,12 @@ class RTLWorkerPlugin implements RTLTextPlugin {
     }
 
     setMethods(rtlTextPlugin: RTLTextPlugin) {
-        this.applyArabicShaping = rtlTextPlugin.applyArabicShaping;
         this.processBidirectionalText = rtlTextPlugin.processBidirectionalText;
         this.processStyledBidirectionalText = rtlTextPlugin.processStyledBidirectionalText;
     }
 
     isParsed(): boolean {
-        return this.applyArabicShaping != null &&
-            this.processBidirectionalText != null &&
+        return this.processBidirectionalText != null &&
             this.processStyledBidirectionalText != null;
     }
 

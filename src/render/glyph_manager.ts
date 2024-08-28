@@ -176,17 +176,34 @@ export class GlyphManager {
 
         const char = tinySDF.draw(grapheme);
 
+        let leftOffset = 0;
+        let rightOffset = 0;
+        const tatweel = '\u0640';
+        if (grapheme !== tatweel && grapheme.includes(tatweel)) {
+            let tatweelGlyph = entry.glyphs[tatweel];
+            if (!tatweelGlyph) {
+                // Render a kashida/tatweel to get its metrics.
+                tatweelGlyph = entry.glyphs[tatweel] = this._tinySDF(entry, stack, tatweel);
+            }
+            if (grapheme.startsWith(tatweel)) {
+                rightOffset += tatweelGlyph.metrics.advance;
+            }
+            if (grapheme.endsWith(tatweel)) {
+                leftOffset += tatweelGlyph.metrics.advance;
+            }
+        }
+
         const isControl = /^\p{gc=Cf}+$/u.test(grapheme);
 
         return {
             grapheme,
             bitmap: new AlphaImage({width: char.width || 30 * textureScale, height: char.height || 30 * textureScale}, char.data),
             metrics: {
-                width: isControl ? 0 : (char.glyphWidth / textureScale || 24),
+                width: isControl ? 0 : ((char.glyphWidth / textureScale || 24) - leftOffset - rightOffset),
                 height: char.glyphHeight / textureScale || 24,
-                left: (char.glyphLeft - buffer) / textureScale || 0,
+                left: ((char.glyphLeft - buffer) / textureScale || 0) - leftOffset,
                 top: char.glyphTop / textureScale || 0,
-                advance: isControl ? 0 : (char.glyphAdvance / textureScale || 24),
+                advance: isControl ? 0 : ((char.glyphAdvance / textureScale || 24) - leftOffset - rightOffset),
                 isDoubleResolution: true
             }
         };

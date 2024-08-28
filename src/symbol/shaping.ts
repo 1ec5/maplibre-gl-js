@@ -646,11 +646,19 @@ function shapeLines(shaping: Shaping,
             continue;
         }
 
-        let i = 0;
-        for (const grapheme of splitByGraphemeCluster(line.text)) {
+        let graphemes = splitByGraphemeCluster(line.text);
+        for (let i = 0; i < graphemes.length; i++) {
             const section = line.getSection(i);
             const sectionIndex = line.getSectionIndex(i);
+            const grapheme = graphemes[i];
             const codePoint = grapheme.codePointAt(0);
+            let contextualGrapheme = grapheme;
+            if (/\p{sc=Arab}/u.test(graphemes[i - 1]) && /\p{sc=Arab}/u.test(grapheme)) {
+                contextualGrapheme = contextualGrapheme + '\u0640';
+            }
+            if (/\p{sc=Arab}/u.test(grapheme) && /\p{sc=Arab}/u.test(graphemes[i + 1])) {
+                contextualGrapheme = '\u0640' + contextualGrapheme;
+            }
             let baselineOffset = 0.0;
             let metrics = null;
             let rect = null;
@@ -665,13 +673,13 @@ function shapeLines(shaping: Shaping,
 
             if (!section.imageName) {
                 const positions = glyphPositions[section.fontStack];
-                const glyphPosition = positions && positions[grapheme];
+                const glyphPosition = positions && positions[contextualGrapheme];
                 if (glyphPosition && glyphPosition.rect) {
                     rect = glyphPosition.rect;
                     metrics = glyphPosition.metrics;
                 } else {
                     const glyphs = glyphMap[section.fontStack];
-                    const glyph = glyphs && glyphs[grapheme];
+                    const glyph = glyphs && glyphs[contextualGrapheme];
                     if (!glyph) continue;
                     metrics = glyph.metrics;
                 }
@@ -714,16 +722,14 @@ function shapeLines(shaping: Shaping,
             }
 
             if (!vertical) {
-                positionedGlyphs.push({glyph: grapheme, imageName, x, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
+                positionedGlyphs.push({glyph: contextualGrapheme, imageName, x, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
                 x += metrics.advance * section.scale + spacing;
             } else {
                 shaping.verticalizable = true;
                 const advance = verticalAdvance * section.scale + spacing;
-                positionedGlyphs.push({glyph: grapheme, imageName, x: x + advance, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
+                positionedGlyphs.push({glyph: contextualGrapheme, imageName, x: x + advance, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
                 x += advance;
             }
-
-            i++;
         }
 
         // Only justify if we placed at least one glyph
