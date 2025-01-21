@@ -7,6 +7,8 @@ import type {StyleGlyph} from '../style/style_glyph';
 import type {RequestManager} from '../util/request_manager';
 import type {GetGlyphsResponse} from '../util/actor_messages';
 
+import {v8} from '@maplibre/maplibre-gl-style-spec';
+
 type Entry = {
     // null means we've requested the range, but the glyph wasn't included in the result.
     glyphs: {
@@ -20,6 +22,9 @@ type Entry = {
     };
     tinySDF?: TinySDF;
 };
+
+/// The style specification hard-codes some last resort fonts as a default fontstack.
+const defaultStack = v8.layout_symbol['text-font'].default.join(',');
 
 export class GlyphManager {
     requestManager: RequestManager;
@@ -132,11 +137,6 @@ export class GlyphManager {
     }
 
     _tinySDF(entry: Entry, stack: string, grapheme: string): StyleGlyph {
-        const fontFamily = this.localIdeographFontFamily;
-        if (!fontFamily) {
-            return;
-        }
-
         const id = grapheme.codePointAt(0);
         if (!this._doesCharSupportLocalGlyph(id)) {
             return;
@@ -149,22 +149,39 @@ export class GlyphManager {
 
         let tinySDF = entry.tinySDF;
         if (!tinySDF) {
+            let fontFamily = stack;
+            if (fontFamily == defaultStack && this.localIdeographFontFamily) {
+                // The fallback font specified by the developer takes precedence over the last resort fontstack in the style specification.
+                fontFamily = this.localIdeographFontFamily + '';
+            }
+
+            // Escape and quote the font family list for use in CSS.
+            let fontFamilies = fontFamily.split(',');
+            fontFamily = fontFamilies.map(fontName =>
+                /[-\w]+/.test(fontName) ? fontName : `'${CSS.escape(fontName)}'`
+            ).join(',');
+
+            // Sniff the font style out of the first font family name.
+            const fontSize = 24 * textureScale;
             let fontStyle = 'normal';
-            if (/italic/i.test(stack)) {
+            if (/italic/i.test(fontFamilies[0])) {
                 fontStyle = 'italic';
-            } else if (/oblique/i.test(stack)) {
+            } else if (/oblique/i.test(fontFamilies[0])) {
                 fontStyle = 'oblique';
             }
+
+            // Sniff the font weight out of the first font family name.
             let fontWeight = '400';
-            if (/bold/i.test(stack)) {
+            if (/bold/i.test(fontFamilies[0])) {
                 fontWeight = '900';
-            } else if (/medium/i.test(stack)) {
+            } else if (/medium/i.test(fontFamilies[0])) {
                 fontWeight = '500';
-            } else if (/light/i.test(stack)) {
+            } else if (/light/i.test(fontFamilies[0])) {
                 fontWeight = '200';
             }
+
             tinySDF = entry.tinySDF = new GlyphManager.TinySDF({
-                fontSize: 24 * textureScale,
+                fontSize,
                 buffer: buffer * textureScale,
                 radius: 8 * textureScale,
                 cutoff: 0.25,
