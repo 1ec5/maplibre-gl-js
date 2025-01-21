@@ -1,12 +1,42 @@
 /* eslint-disable new-cap */
 
 import {unicodeBlockLookup as isChar} from './is_char_in_unicode_block';
+import {canCombineGraphemes} from '../data/unicode_properties';
 
-export function allowsIdeographicBreaking(chars: string) {
-    for (const char of chars) {
-        if (!charAllowsIdeographicBreaking(char.codePointAt(0))) return false;
+const segmenter = ('Segmenter' in Intl) ? new Intl.Segmenter() : {
+    segment: (text: string) => {
+        const segments = [...text].map((char, index) => ({
+            index,
+            segment: char,
+        }));
+        return {
+            containing: (index: number) => segments.find(s => s.index <= index && s.index + s.segment.length > index),
+            [Symbol.iterator]: () => segments[Symbol.iterator](),
+        };
+    },
+};
+
+export function splitByGraphemeCluster(text: string) {
+    const segments = segmenter.segment(text)[Symbol.iterator]();
+    let segment = segments.next();
+    const nextSegments = segmenter.segment(text)[Symbol.iterator]();
+    nextSegments.next();
+    let nextSegment = nextSegments.next();
+
+    const baseSegments = [];
+    while (!segment.done) {
+        const baseSegment = segment;
+        while (!nextSegment.done && canCombineGraphemes(baseSegment.value.segment, nextSegment.value.segment)) {
+            baseSegment.value.segment += nextSegment.value.segment;
+            segment = segments.next();
+            nextSegment = nextSegments.next();
+        }
+        baseSegments.push(baseSegment.value);
+        segment = segments.next();
+        nextSegment = nextSegments.next();
     }
-    return true;
+
+    return baseSegments;
 }
 
 export function allowsVerticalWritingMode(chars: string) {
@@ -17,10 +47,7 @@ export function allowsVerticalWritingMode(chars: string) {
 }
 
 export function allowsLetterSpacing(chars: string) {
-    for (const char of chars) {
-        if (!charAllowsLetterSpacing(char.codePointAt(0))) return false;
-    }
-    return true;
+    return !cursiveScriptRegExp.test(chars);
 }
 
 /**
@@ -35,7 +62,7 @@ function sanitizedRegExpFromScriptCodes(scriptCodes: Array<string>): RegExp {
             return null;
         }
     }).filter(pe => pe);
-    return new RegExp(supportedPropertyEscapes.join('|'), 'u');
+    return new RegExp(`[${supportedPropertyEscapes.join('')}]`, 'u');
 }
 
 /**
@@ -54,10 +81,6 @@ const cursiveScriptCodes = [
 
 const cursiveScriptRegExp = sanitizedRegExpFromScriptCodes(cursiveScriptCodes);
 
-export function charAllowsLetterSpacing(char: number) {
-    return !cursiveScriptRegExp.test(String.fromCodePoint(char));
-}
-
 /**
  * ISO 15924 script codes of scripts that allow ideographic line breaking beyond
  * the CJKV scripts that are considered ideographic in Unicode 16.0.0.
@@ -74,30 +97,6 @@ const ideographicBreakingScriptCodes = [
 ];
 
 const ideographicBreakingRegExp = sanitizedRegExpFromScriptCodes(ideographicBreakingScriptCodes);
-
-export function charAllowsIdeographicBreaking(char: number) {
-    // Return early for characters outside all ideographic ranges.
-    if (char < 0x2E80) return false;
-
-    if (isChar['CJK Compatibility'](char)) return true;
-    if (isChar['CJK Compatibility Forms'](char)) return true;
-    if (isChar['CJK Radicals Supplement'](char)) return true;
-    if (isChar['CJK Strokes'](char)) return true;
-    if (isChar['CJK Symbols and Punctuation'](char)) return true;
-    if (isChar['Enclosed CJK Letters and Months'](char)) return true;
-    if (isChar['Enclosed Ideographic Supplement'](char)) return true;
-    if (isChar['Halfwidth and Fullwidth Forms'](char)) return true;
-    if (isChar['Ideographic Description Characters'](char)) return true;
-    if (isChar['Ideographic Symbols and Punctuation'](char)) return true;
-    if (isChar['Kana Extended-A'](char)) return true;
-    if (isChar['Kana Extended-B'](char)) return true;
-    if (isChar['Kana Supplement'](char)) return true;
-    if (isChar['Kangxi Radicals'](char)) return true;
-    if (isChar['Katakana Phonetic Extensions'](char)) return true;
-    if (isChar['Small Kana Extension'](char)) return true;
-    if (isChar['Vertical Forms'](char)) return true;
-    return ideographicBreakingRegExp.test(String.fromCodePoint(char));
-}
 
 // The following logic comes from
 // <https://www.unicode.org/Public/16.0.0/ucd/VerticalOrientation.txt>.
@@ -201,9 +200,25 @@ export function charHasUprightVerticalOrientation(char: number) {
     if (/* Canadian Aboriginal */ /\p{sc=Cans}/u.test(String.fromCodePoint(char))) return true;
     if (/* Egyptian Hieroglyphs */ /\p{sc=Egyp}/u.test(String.fromCodePoint(char))) return true;
     if (/* Hangul */ /\p{sc=Hang}/u.test(String.fromCodePoint(char))) return true;
-    if (charAllowsIdeographicBreaking(char)) return true;
 
-    return false;
+    if (isChar['CJK Compatibility'](char)) return true;
+    if (isChar['CJK Compatibility Forms'](char)) return true;
+    if (isChar['CJK Radicals Supplement'](char)) return true;
+    if (isChar['CJK Strokes'](char)) return true;
+    if (isChar['CJK Symbols and Punctuation'](char)) return true;
+    if (isChar['Enclosed CJK Letters and Months'](char)) return true;
+    if (isChar['Enclosed Ideographic Supplement'](char)) return true;
+    if (isChar['Halfwidth and Fullwidth Forms'](char)) return true;
+    if (isChar['Ideographic Description Characters'](char)) return true;
+    if (isChar['Ideographic Symbols and Punctuation'](char)) return true;
+    if (isChar['Kana Extended-A'](char)) return true;
+    if (isChar['Kana Extended-B'](char)) return true;
+    if (isChar['Kana Supplement'](char)) return true;
+    if (isChar['Kangxi Radicals'](char)) return true;
+    if (isChar['Katakana Phonetic Extensions'](char)) return true;
+    if (isChar['Small Kana Extension'](char)) return true;
+    if (isChar['Vertical Forms'](char)) return true;
+    return ideographicBreakingRegExp.test(String.fromCodePoint(char));
 }
 
 /**
@@ -361,11 +376,7 @@ const rtlScriptCodes = [
     'Yezi', // Yezidi
 ];
 
-const rtlScriptRegExp = sanitizedRegExpFromScriptCodes(rtlScriptCodes);
-
-export function charInRTLScript(char: number) {
-    return rtlScriptRegExp.test(String.fromCodePoint(char));
-}
+export const rtlScriptRegExp = sanitizedRegExpFromScriptCodes(rtlScriptCodes);
 
 export function charInSupportedScript(char: number, canRenderRTL: boolean) {
     // This is a rough heuristic: whether we "can render" a script
@@ -375,7 +386,7 @@ export function charInSupportedScript(char: number, canRenderRTL: boolean) {
 
     // Even in Latin script, we "can't render" combinations such as the fi
     // ligature, but we don't consider that semantically significant.
-    if (!canRenderRTL && charInRTLScript(char)) {
+    if (!canRenderRTL && rtlScriptRegExp.test(String.fromCodePoint(char))) {
         return false;
     }
     if ((char >= 0x0900 && char <= 0x0DFF) ||
@@ -393,12 +404,7 @@ export function charInSupportedScript(char: number, canRenderRTL: boolean) {
 }
 
 export function stringContainsRTLText(chars: string): boolean {
-    for (const char of chars) {
-        if (charInRTLScript(char.codePointAt(0))) {
-            return true;
-        }
-    }
-    return false;
+    return rtlScriptRegExp.test(chars);
 }
 
 export function isStringInSupportedScript(chars: string, canRenderRTL: boolean) {

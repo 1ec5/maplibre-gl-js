@@ -56,9 +56,9 @@ import type {CustomLayerInterface} from './style_layer/custom_style_layer';
 import type {Validator} from './validate_style';
 import {
     MessageType,
-    type GetGlyphsParamerters,
+    type GetGlyphsParameters,
     type GetGlyphsResponse,
-    type GetImagesParamerters,
+    type GetImagesParameters,
     type GetImagesResponse
 } from '../util/actor_messages';
 
@@ -1668,7 +1668,7 @@ export class Style extends Evented {
 
     // Callbacks from web workers
 
-    async getImages(mapId: string | number, params: GetImagesParamerters): Promise<GetImagesResponse> {
+    async getImages(mapId: string | number, params: GetImagesParameters): Promise<GetImagesResponse> {
         const images = await this.imageManager.getImages(params.icons);
 
         // Apply queued image changes before setting the tile's dependencies so that the tile
@@ -1688,15 +1688,15 @@ export class Style extends Evented {
         return images;
     }
 
-    async getGlyphs(mapId: string | number, params: GetGlyphsParamerters): Promise<GetGlyphsResponse> {
-        const glypgs = await this.glyphManager.getGlyphs(params.stacks);
+    async getGlyphs(mapId: string | number, params: GetGlyphsParameters): Promise<GetGlyphsResponse> {
+        const glyphs = await this.glyphManager.getGlyphs(params.stacks);
         const sourceCache = this.sourceCaches[params.source];
         if (sourceCache) {
             // we are not setting stacks as dependencies since for now
             // we just need to know which tiles have glyph dependencies
             sourceCache.setDependencies(params.tileID.key, params.type, ['']);
         }
-        return glypgs;
+        return glyphs;
     }
 
     getGlyphsUrl() {

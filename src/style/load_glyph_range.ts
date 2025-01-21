@@ -25,7 +25,7 @@ export async function loadGlyphRange(fontstack: string,
     const glyphs = {};
 
     for (const glyph of parseGlyphPbf(response.data)) {
-        glyphs[glyph.id] = glyph;
+        glyphs[glyph.grapheme] = glyph;
     }
 
     return glyphs;

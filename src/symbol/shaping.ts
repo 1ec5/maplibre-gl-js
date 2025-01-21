@@ -1,7 +1,8 @@
 import {
     charHasUprightVerticalOrientation,
-    charAllowsIdeographicBreaking,
-    charInComplexShapingScript
+    charInComplexShapingScript,
+    rtlScriptRegExp,
+    splitByGraphemeCluster
 } from '../util/script_detection';
 import {verticalizePunctuation} from '../util/verticalize_punctuation';
 import {rtlWorkerPlugin} from '../source/rtl_text_plugin_worker';
@@ -23,7 +24,7 @@ enum WritingMode {
     horizontalOnly = 3
 }
 
-const SHAPING_DEFAULT_OFFSET = -17;
+const SHAPING_DEFAULT_OFFSET = 0;
 export {shapeText, shapeIcon, applyTextFit, fitIconToText, getAnchorAlignment, WritingMode, SHAPING_DEFAULT_OFFSET};
 
 // The position of a glyph relative to the text's anchor point.
@@ -66,6 +67,22 @@ function isEmpty(positionedLines: Array<PositionedLine>) {
     }
     return true;
 }
+
+const rtlCombiningMarkRegExp = new RegExp(`(${rtlScriptRegExp.source})([\\p{gc=Mn}\\p{gc=Mc}])`, 'gu');
+const wordSegmenter = ('Segmenter' in Intl) ? new Intl.Segmenter(undefined, {granularity: 'word'}) : {
+    // Polyfill for Intl.Segmenter with word granularity for the purpose of line breaking
+    segment: (text: String) => {
+        // Prefer breaking on an individual CJKV ideograph instead of keeping the entire run of CJKV together.
+        const segments = text.split(/\b|(?=\p{Ideo})/u).map((segment, index) => ({
+            index,
+            segment,
+        }));
+        return {
+            containing: (index: number) => segments.find(s => s.index <= index && s.index + s.segment.length > index),
+            [Symbol.iterator]: () => segments[Symbol.iterator](),
+        };
+    },
+};
 
 export type SymbolAnchor = 'center' | 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 export type TextJustify = 'left' | 'center' | 'right';
@@ -130,7 +147,7 @@ export class TaggedString {
     }
 
     length(): number {
-        return [...this.text].length;
+        return splitByGraphemeCluster(this.text).length;
     }
 
     getSection(index: number): SectionOptions {
@@ -157,17 +174,17 @@ export class TaggedString {
 
     substring(start: number, end: number): TaggedString {
         const substring = new TaggedString();
-        substring.text = [...this.text].slice(start, end).join('');
+        substring.text = splitByGraphemeCluster(this.text).slice(start, end).map(s => s.segment).join('');
         substring.sectionIndex = this.sectionIndex.slice(start, end);
         substring.sections = this.sections;
         return substring;
     }
 
     /**
-     * Converts a UTF-16 character index to a UTF-16 code unit (JavaScript character index).
+     * Converts a grapheme cluster index to a UTF-16 code unit (JavaScript character index).
      */
     toCodeUnitIndex(unicodeIndex: number): number {
-        return [...this.text].slice(0, unicodeIndex).join('').length;
+        return splitByGraphemeCluster(this.text).slice(0, unicodeIndex).map(s => s.segment).join('').length;
     }
 
     toString(): string {
@@ -182,10 +199,7 @@ export class TaggedString {
         this.text += section.text;
         this.sections.push(SectionOptions.forText(section.scale, section.fontStack || defaultFontStack));
         const index = this.sections.length - 1;
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        for (const char of section.text) {
-            this.sectionIndex.push(index);
-        }
+        this.sectionIndex.push(...Array(splitByGraphemeCluster(section.text).length).fill(index));
     }
 
     addImageSection(section: FormattedSection) {
@@ -235,7 +249,7 @@ function shapeText(
     text: Formatted,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     glyphPositions: {
@@ -265,49 +279,70 @@ function shapeText(
     let lines: Array<TaggedString>;
 
     let lineBreaks = determineLineBreaks(logicalInput, spacing, maxWidth, glyphMap, imagePositions, layoutTextSize);
+
+    /// Prepares a string as input to the RTL plugin.
+    const stripMarker = '\uF8FF';
+    const prepareBidiInput = string => string
+        // Replace zero-width joiners with temporary strip markers (from the Private Use Area) to prevent ICU from stripping them out.
+        .replace(/\u200D/g, stripMarker)
+        // Preemptively swap combining marks with the characters they modify so they remain in logical order.
+        .replace(rtlCombiningMarkRegExp, '$2$1');
+
+    /// Prepares a line break array as input to the RTL plugin.
+    const adjustLineBreaks = () => {
+        const graphemes = splitByGraphemeCluster(logicalInput.toString());
+        // ICU operates on code units.
+        lineBreaks = lineBreaks
+            // Get the length of the prefix leading up to each code unit.
+            .map(index => graphemes.slice(0, index).map(s => s.segment).join('').length);
+    };
+
+    /// Converts a line of output from the RTL plugin into a tagged string, except for `sectionIndex`.
+    const taggedLineFromBidi = (line) => {
+        const taggedLine = new TaggedString();
+        // Restore zero-width joiners from temporary strip markers.
+        taggedLine.text = line.replaceAll(stripMarker, '\u200D');
+        taggedLine.sections = logicalInput.sections;
+        return taggedLine;
+    };
+
     const {processBidirectionalText, processStyledBidirectionalText} = rtlWorkerPlugin;
     if (processBidirectionalText && logicalInput.sections.length === 1) {
         // Bidi doesn't have to be style-aware
         lines = [];
-        // ICU operates on code units.
-        lineBreaks = lineBreaks.map(index => logicalInput.toCodeUnitIndex(index));
+        const markedInput = prepareBidiInput(logicalInput.toString());
+        adjustLineBreaks();
         const untaggedLines =
-            processBidirectionalText(logicalInput.toString(), lineBreaks);
+            processBidirectionalText(markedInput, lineBreaks);
         for (const line of untaggedLines) {
-            const taggedLine = new TaggedString();
-            taggedLine.text = line;
+            const taggedLine = taggedLineFromBidi(line);
             taggedLine.sections = logicalInput.sections;
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            for (const char of line) {
-                taggedLine.sectionIndex.push(0);
-            }
+            taggedLine.sectionIndex.push(...Array(splitByGraphemeCluster(taggedLine.text).length).fill(0));
             lines.push(taggedLine);
         }
     } else if (processStyledBidirectionalText) {
         // Need version of mapbox-gl-rtl-text with style support for combining RTL text
         // with formatting
         lines = [];
-        // ICU operates on code units.
-        lineBreaks = lineBreaks.map(index => logicalInput.toCodeUnitIndex(index));
+        const markedInput = prepareBidiInput(logicalInput.toString());
 
-        // Convert character-based section index to be based on code units.
+        // Convert grapheme cluster–based section index to be based on code units.
         let i = 0;
         const sectionIndex = [];
-        for (const char of logicalInput.text) {
-            sectionIndex.push(...Array(char.length).fill(logicalInput.sectionIndex[i]));
+        for (const {segment} of splitByGraphemeCluster(markedInput)) {
+            sectionIndex.push(...Array(segment.length).fill(logicalInput.sectionIndex[i]));
             i++;
         }
 
+        adjustLineBreaks();
         const processedLines =
-            processStyledBidirectionalText(logicalInput.text, sectionIndex, lineBreaks);
+            processStyledBidirectionalText(markedInput, sectionIndex, lineBreaks);
         for (const line of processedLines) {
-            const taggedLine = new TaggedString();
-            taggedLine.text = line[0];
-            taggedLine.sections = logicalInput.sections;
-            let elapsedChars = '';
-            for (const char of line[0]) {
-                taggedLine.sectionIndex.push(line[1][elapsedChars.length]);
-                elapsedChars += char;
+            const taggedLine = taggedLineFromBidi(line[0]);
+            let i = 0;
+            for (const {segment} of splitByGraphemeCluster(taggedLine.text)) {
+                taggedLine.sectionIndex.push(line[1][i]);
+                i += segment.length;
             }
             lines.push(taggedLine);
         }
@@ -348,40 +383,12 @@ const whitespace: {
     [0x20]: true, // space
 };
 
-const breakable: {
-    [_: number]: boolean;
-} = {
-    [0x0a]: true, // newline
-    [0x20]: true, // space
-    [0x26]: true, // ampersand
-    [0x29]: true, // right parenthesis
-    [0x2b]: true, // plus sign
-    [0x2d]: true, // hyphen-minus
-    [0x2f]: true, // solidus
-    [0xad]: true, // soft hyphen
-    [0xb7]: true, // middle dot
-    [0x200b]: true, // zero-width space
-    [0x2010]: true, // hyphen
-    [0x2013]: true, // en dash
-    [0x2027]: true  // interpunct
-    // Many other characters may be reasonable breakpoints
-    // Consider "neutral orientation" characters at scriptDetection.charHasNeutralVerticalOrientation
-    // See https://github.com/mapbox/mapbox-gl-js/issues/3658
-};
-
-// Allow breaks depending on the following character
-const breakableBefore: {
-    [_: number]: boolean;
-} = {
-    [0x28]: true, // left parenthesis
-};
-
 function getGlyphAdvance(
-    codePoint: number,
+    grapheme: string,
     section: SectionOptions,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     imagePositions: {[_: string]: ImagePosition},
@@ -390,7 +397,7 @@ function getGlyphAdvance(
 ): number {
     if (!section.imageName) {
         const positions = glyphMap[section.fontStack];
-        const glyph = positions && positions[codePoint];
+        const glyph = positions && positions[grapheme];
         if (!glyph) return 0;
         return glyph.metrics.advance * section.scale + spacing;
     } else {
@@ -405,7 +412,7 @@ function determineAverageLineWidth(logicalInput: TaggedString,
     maxWidth: number,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     imagePositions: {[_: string]: ImagePosition},
@@ -413,9 +420,9 @@ function determineAverageLineWidth(logicalInput: TaggedString,
     let totalWidth = 0;
 
     let index = 0;
-    for (const char of logicalInput.text) {
+    for (const {segment} of splitByGraphemeCluster(logicalInput.text)) {
         const section = logicalInput.getSection(index);
-        totalWidth += getGlyphAdvance(char.codePointAt(0), section, glyphMap, imagePositions, spacing, layoutTextSize);
+        totalWidth += getGlyphAdvance(segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
         index++;
     }
 
@@ -440,16 +447,11 @@ function calculateBadness(lineWidth: number,
     return raggedness + Math.abs(penalty) * penalty;
 }
 
-function calculatePenalty(codePoint: number, nextCodePoint: number, penalizableIdeographicBreak: boolean) {
+function calculatePenalty(codePoint: number, nextCodePoint: number) {
     let penalty = 0;
     // Force break on newline
     if (codePoint === 0x0a) {
         penalty -= 10000;
-    }
-    // Penalize breaks between characters that allow ideographic breaking because
-    // they are less preferable than breaks at spaces (or zero width spaces).
-    if (penalizableIdeographicBreak) {
-        penalty += 150;
     }
 
     // Penalize open parenthesis at end of line
@@ -518,7 +520,7 @@ export function determineLineBreaks(
     maxWidth: number,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     imagePositions: {[_: string]: ImagePosition},
@@ -530,47 +532,26 @@ export function determineLineBreaks(
     const potentialLineBreaks = [];
     const targetWidth = determineAverageLineWidth(logicalInput, spacing, maxWidth, glyphMap, imagePositions, layoutTextSize);
 
-    const hasServerSuggestedBreakpoints = logicalInput.text.indexOf('\u200b') >= 0;
-
+    const graphemes = splitByGraphemeCluster(logicalInput.text);
+    const words = wordSegmenter.segment(logicalInput.text);
     let currentX = 0;
-
-    let i = 0;
-    const chars = logicalInput.text[Symbol.iterator]();
-    let char = chars.next();
-    const nextChars = logicalInput.text[Symbol.iterator]();
-    nextChars.next();
-    let nextChar = nextChars.next();
-    const nextNextChars = logicalInput.text[Symbol.iterator]();
-    nextNextChars.next();
-    nextNextChars.next();
-    let nextNextChar = nextNextChars.next();
-
-    while (!char.done) {
-        const section = logicalInput.getSection(i);
-        const codePoint = char.value.codePointAt(0);
-        if (!whitespace[codePoint]) currentX += getGlyphAdvance(codePoint, section, glyphMap, imagePositions, spacing, layoutTextSize);
-
-        // Ideographic characters, spaces, and word-breaking punctuation that often appear without
-        // surrounding spaces.
-        if (!nextChar.done) {
-            const ideographicBreak = charAllowsIdeographicBreaking(codePoint);
-            const nextCodePoint = nextChar.value.codePointAt(0);
-            if (breakable[codePoint] || ideographicBreak || section.imageName || (!nextNextChar.done && breakableBefore[nextCodePoint])) {
-
-                potentialLineBreaks.push(
-                    evaluateBreak(
-                        i + 1,
-                        currentX,
-                        targetWidth,
-                        potentialLineBreaks,
-                        calculatePenalty(codePoint, nextCodePoint, ideographicBreak && hasServerSuggestedBreakpoints),
-                        false));
-            }
+    for (const [i, grapheme] of graphemes.entries()) {
+        // Check whether the grapheme cluster immediately follows a word boundary.
+        const prevWord = words.containing(grapheme.index - 1);
+        const word = words.containing(grapheme.index);
+        if (prevWord && prevWord.index !== word.index) {
+            // Score the line breaking opportunity based on the characters immediately before and after the word boundary.
+            const prevCodePoint = logicalInput.text.codePointAt(grapheme.index - 1);
+            const firstCodePoint = grapheme.segment.codePointAt(0);
+            const penalty = calculatePenalty(prevCodePoint, firstCodePoint);
+            const lineBreak = evaluateBreak(i, currentX, targetWidth, potentialLineBreaks, penalty, false);
+            potentialLineBreaks.push(lineBreak);
         }
-        i++;
-        char = chars.next();
-        nextChar = nextChars.next();
-        nextNextChar = nextNextChars.next();
+
+        const section = logicalInput.getSection(i);
+        if (grapheme.segment.trim()) {
+            currentX += getGlyphAdvance(grapheme.segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
+        }
     }
 
     return leastBadBreaks(
@@ -618,7 +599,7 @@ function getAnchorAlignment(anchor: SymbolAnchor) {
 function shapeLines(shaping: Shaping,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     glyphPositions: {
@@ -664,10 +645,10 @@ function shapeLines(shaping: Shaping,
         }
 
         let i = 0;
-        for (const char of line.text) {
+        for (const {segment} of splitByGraphemeCluster(line.text)) {
             const section = line.getSection(i);
             const sectionIndex = line.getSectionIndex(i);
-            const codePoint = char.codePointAt(0);
+            const codePoint = segment.codePointAt(0);
             let baselineOffset = 0.0;
             let metrics = null;
             let rect = null;
@@ -682,13 +663,13 @@ function shapeLines(shaping: Shaping,
 
             if (!section.imageName) {
                 const positions = glyphPositions[section.fontStack];
-                const glyphPosition = positions && positions[codePoint];
+                const glyphPosition = positions && positions[segment];
                 if (glyphPosition && glyphPosition.rect) {
                     rect = glyphPosition.rect;
                     metrics = glyphPosition.metrics;
                 } else {
                     const glyphs = glyphMap[section.fontStack];
-                    const glyph = glyphs && glyphs[codePoint];
+                    const glyph = glyphs && glyphs[segment];
                     if (!glyph) continue;
                     metrics = glyph.metrics;
                 }
@@ -731,12 +712,13 @@ function shapeLines(shaping: Shaping,
             }
 
             if (!vertical) {
-                positionedGlyphs.push({glyph: codePoint, imageName, x, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
+                positionedGlyphs.push({glyph: segment, imageName, x, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
                 x += metrics.advance * section.scale + spacing;
             } else {
                 shaping.verticalizable = true;
-                positionedGlyphs.push({glyph: codePoint, imageName, x, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
-                x += verticalAdvance * section.scale + spacing;
+                const advance = verticalAdvance * section.scale + spacing;
+                positionedGlyphs.push({glyph: segment, imageName, x: x + advance, y: y + baselineOffset, vertical, scale: section.scale, fontStack: section.fontStack, sectionIndex, metrics, rect});
+                x += advance;
             }
 
             i++;

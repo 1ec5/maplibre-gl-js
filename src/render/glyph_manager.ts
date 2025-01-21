@@ -1,17 +1,18 @@
 import {loadGlyphRange} from '../style/load_glyph_range';
 
 import TinySDF from '@mapbox/tiny-sdf';
-import {charAllowsIdeographicBreaking} from '../util/script_detection';
 import {AlphaImage} from '../util/image';
 
 import type {StyleGlyph} from '../style/style_glyph';
 import type {RequestManager} from '../util/request_manager';
 import type {GetGlyphsResponse} from '../util/actor_messages';
 
+import {v8} from '@maplibre/maplibre-gl-style-spec';
+
 type Entry = {
     // null means we've requested the range, but the glyph wasn't included in the result.
     glyphs: {
-        [id: number]: StyleGlyph | null;
+        [grapheme: string]: StyleGlyph | null;
     };
     requests: {
         [range: number]: Promise<{[_: number]: StyleGlyph | null}>;
@@ -21,6 +22,9 @@ type Entry = {
     };
     tinySDF?: TinySDF;
 };
+
+/// The style specification hard-codes some last resort fonts as a default fontstack.
+const defaultStack = v8.layout_symbol['text-font'].default.join(',');
 
 export class GlyphManager {
     requestManager: RequestManager;
@@ -42,12 +46,12 @@ export class GlyphManager {
         this.url = url;
     }
 
-    async getGlyphs(glyphs: {[stack: string]: Array<number>}): Promise<GetGlyphsResponse> {
-        const glyphsPromises: Promise<{stack: string; id: number; glyph: StyleGlyph}>[] = [];
+    async getGlyphs(glyphs: {[stack: string]: Array<string>}): Promise<GetGlyphsResponse> {
+        const glyphsPromises: Promise<{stack: string; grapheme: string; glyph: StyleGlyph}>[] = [];
 
         for (const stack in glyphs) {
-            for (const id of glyphs[stack]) {
-                glyphsPromises.push(this._getAndCacheGlyphsPromise(stack, id));
+            for (const grapheme of glyphs[stack]) {
+                glyphsPromises.push(this._getAndCacheGlyphsPromise(stack, grapheme));
             }
         }
 
@@ -55,13 +59,13 @@ export class GlyphManager {
 
         const result: GetGlyphsResponse = {};
 
-        for (const {stack, id, glyph} of updatedGlyphs) {
+        for (const {stack, grapheme, glyph} of updatedGlyphs) {
             if (!result[stack]) {
                 result[stack] = {};
             }
             // Clone the glyph so that our own copy of its ArrayBuffer doesn't get transferred.
-            result[stack][id] = glyph && {
-                id: glyph.id,
+            result[stack][grapheme] = glyph && {
+                grapheme: glyph.grapheme,
                 bitmap: glyph.bitmap.clone(),
                 metrics: glyph.metrics
             };
@@ -70,7 +74,7 @@ export class GlyphManager {
         return result;
     }
 
-    async _getAndCacheGlyphsPromise(stack: string, id: number): Promise<{stack: string; id: number; glyph: StyleGlyph}> {
+    async _getAndCacheGlyphsPromise(stack: string, grapheme: string): Promise<{stack: string; grapheme: string; glyph: StyleGlyph}> {
         let entry = this.entries[stack];
         if (!entry) {
             entry = this.entries[stack] = {
@@ -80,20 +84,21 @@ export class GlyphManager {
             };
         }
 
-        let glyph = entry.glyphs[id];
+        let glyph = entry.glyphs[grapheme];
         if (glyph !== undefined) {
-            return {stack, id, glyph};
+            return {stack, grapheme, glyph};
         }
 
-        glyph = this._tinySDF(entry, stack, id);
+        glyph = this._tinySDF(entry, stack, grapheme);
         if (glyph) {
-            entry.glyphs[id] = glyph;
-            return {stack, id, glyph};
+            entry.glyphs[grapheme] = glyph;
+            return {stack, grapheme, glyph};
         }
 
+        const id = grapheme.codePointAt(0);
         const range = Math.floor(id / 256);
         if (entry.ranges[range]) {
-            return {stack, id, glyph};
+            return {stack, grapheme, glyph};
         }
 
         if (!this.url) {
@@ -106,13 +111,14 @@ export class GlyphManager {
         }
 
         const response = await entry.requests[range];
-        for (const id in response) {
+        for (const grapheme in response) {
+            const id = grapheme.codePointAt(0);
             if (!this._doesCharSupportLocalGlyph(+id)) {
-                entry.glyphs[+id] = response[+id];
+                entry.glyphs[grapheme] = response[grapheme];
             }
         }
         entry.ranges[range] = true;
-        return {stack, id, glyph: response[id] || null};
+        return {stack, grapheme, glyph: response[grapheme] || null};
     }
 
     /**
@@ -126,18 +132,12 @@ export class GlyphManager {
      * rendered remotely. For visual consistency within CJKV text, even relatively small CJKV and
      * other siniform code blocks prefer local rendering.
      */
-    _doesCharSupportLocalGlyph(id: number): boolean {
-        return !!this.localIdeographFontFamily &&
-            (/\p{Ideo}|\p{sc=Hang}|\p{sc=Hira}|\p{sc=Kana}/u.test(String.fromCodePoint(id)) ||
-             charAllowsIdeographicBreaking(id));
+    _doesCharSupportLocalGlyph(_id: number): boolean {
+        return true;
     }
 
-    _tinySDF(entry: Entry, stack: string, id: number): StyleGlyph {
-        const fontFamily = this.localIdeographFontFamily;
-        if (!fontFamily) {
-            return;
-        }
-
+    _tinySDF(entry: Entry, stack: string, grapheme: string): StyleGlyph {
+        const id = grapheme.codePointAt(0);
         if (!this._doesCharSupportLocalGlyph(id)) {
             return;
         }
@@ -145,55 +145,65 @@ export class GlyphManager {
         // Client-generated glyphs are rendered at 2x texture scale,
         // because CJK glyphs are more detailed than others.
         const textureScale = 2;
+        const buffer = 10;
 
         let tinySDF = entry.tinySDF;
         if (!tinySDF) {
+            let fontFamily = stack;
+            if (fontFamily == defaultStack && this.localIdeographFontFamily) {
+                // The fallback font specified by the developer takes precedence over the last resort fontstack in the style specification.
+                fontFamily = this.localIdeographFontFamily + '';
+            }
+
+            // Escape and quote the font family list for use in CSS.
+            let fontFamilies = fontFamily.split(',');
+            fontFamily = fontFamilies.map(fontName =>
+                /[-\w]+/.test(fontName) ? fontName : `'${CSS.escape(fontName)}'`
+            ).join(',');
+
+            // Sniff the font style out of the first font family name.
+            const fontSize = 24 * textureScale;
+            let fontStyle = 'normal';
+            if (/italic/i.test(fontFamilies[0])) {
+                fontStyle = 'italic';
+            } else if (/oblique/i.test(fontFamilies[0])) {
+                fontStyle = 'oblique';
+            }
+
+            // Sniff the font weight out of the first font family name.
             let fontWeight = '400';
-            if (/bold/i.test(stack)) {
+            if (/bold/i.test(fontFamilies[0])) {
                 fontWeight = '900';
-            } else if (/medium/i.test(stack)) {
+            } else if (/medium/i.test(fontFamilies[0])) {
                 fontWeight = '500';
-            } else if (/light/i.test(stack)) {
+            } else if (/light/i.test(fontFamilies[0])) {
                 fontWeight = '200';
             }
+
             tinySDF = entry.tinySDF = new GlyphManager.TinySDF({
-                fontSize: 24 * textureScale,
-                buffer: 3 * textureScale,
+                fontSize,
+                buffer: buffer * textureScale,
                 radius: 8 * textureScale,
                 cutoff: 0.25,
                 fontFamily,
+                fontStyle,
                 fontWeight
             });
         }
 
-        const char = tinySDF.draw(String.fromCodePoint(id));
+        const char = tinySDF.draw(grapheme);
 
-        /**
-         * TinySDF's "top" is the distance from the alphabetic baseline to the top of the glyph.
-         * Server-generated fonts specify "top" relative to an origin above the em box (the origin
-         * comes from FreeType, but I'm unclear on exactly how it's derived)
-         * ref: https://github.com/mapbox/sdf-glyph-foundry
-         *
-         * Server fonts don't yet include baseline information, so we can't line up exactly with them
-         * (and they don't line up with each other)
-         * ref: https://github.com/mapbox/node-fontnik/pull/160
-         *
-         * To approximately align TinySDF glyphs with server-provided glyphs, we use this baseline adjustment
-         * factor calibrated to be in between DIN Pro and Arial Unicode (but closer to Arial Unicode)
-         */
-        const topAdjustment = 27.5;
-
-        const leftAdjustment = 0.5;
+        const isControl = /^\p{gc=Cf}+$/u.test(grapheme);
 
         return {
-            id,
+            grapheme,
             bitmap: new AlphaImage({width: char.width || 30 * textureScale, height: char.height || 30 * textureScale}, char.data),
             metrics: {
-                width: char.glyphWidth / textureScale || 24,
+                width: isControl ? 0 : (char.glyphWidth / textureScale || 24),
                 height: char.glyphHeight / textureScale || 24,
-                left: (char.glyphLeft / textureScale + leftAdjustment) || 0,
-                top: char.glyphTop / textureScale - topAdjustment || -8,
-                advance: char.glyphAdvance / textureScale || 24,
+                left: (char.glyphLeft - buffer) / textureScale || 0,
+                top: char.glyphTop / textureScale || 0,
+                advance: isControl ? 0 : (char.glyphAdvance / textureScale || 24),
                 isDoubleResolution: true
             }
         };
