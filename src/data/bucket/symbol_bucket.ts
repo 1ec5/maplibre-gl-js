@@ -23,7 +23,7 @@ import {ProgramConfigurationSet} from '../program_configuration';
 import {TriangleIndexArray, LineIndexArray} from '../index_array_type';
 import {transformText} from '../../symbol/transform_text';
 import {mergeLines} from '../../symbol/merge_lines';
-import {allowsVerticalWritingMode, stringContainsRTLText} from '../../util/script_detection';
+import {allowsVerticalWritingMode, splitByGraphemeCluster, stringContainsRTLText} from '../../util/script_detection';
 import {WritingMode} from '../../symbol/shaping';
 import {loadGeometry} from '../load_geometry';
 import {toEvaluationFeature} from '../evaluation_feature';
@@ -413,17 +413,17 @@ export class SymbolBucket implements Bucket {
 
     private calculateGlyphDependencies(
         text: string,
-        stack: {[_: number]: boolean},
+        stack: {[_: string]: boolean},
         textAlongLine: boolean,
         allowVerticalPlacement: boolean,
         doesAllowVerticalWritingMode: boolean) {
 
-        for (const char of text) {
-            stack[char.codePointAt(0)] = true;
+        for (const {segment} of splitByGraphemeCluster(text)) {
+            stack[segment] = true;
             if ((textAlongLine || allowVerticalPlacement) && doesAllowVerticalWritingMode) {
-                const verticalChar = verticalizedCharacterMap[char];
+                const verticalChar = verticalizedCharacterMap[segment];
                 if (verticalChar) {
-                    stack[verticalChar.codePointAt(0)] = true;
+                    stack[segment] = true;
                 }
             }
         }

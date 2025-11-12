@@ -1,19 +1,48 @@
 import {
-    codePointAllowsIdeographicBreaking,
+    canCombineGraphemes,
     codePointHasUprightVerticalOrientation,
     codePointHasNeutralVerticalOrientation,
     codePointRequiresComplexTextShaping
 } from '../util/unicode_properties.g';
 
+export const segmenter = ('Segmenter' in Intl) ? new Intl.Segmenter() : {
+    segment: (text: string) => {
+        const segments = [...text].map((char, index) => ({
+            index,
+            segment: char,
+        }));
+        return {
+            containing: (index: number) => segments.find(s => s.index <= index && s.index + s.segment.length > index),
+            [Symbol.iterator]: () => segments[Symbol.iterator](),
+        };
+    },
+};
+
 export function charIsWhitespace(char: number) {
     return /\s/u.test(String.fromCodePoint(char));
 }
 
-export function allowsIdeographicBreaking(chars: string) {
-    for (const char of chars) {
-        if (!codePointAllowsIdeographicBreaking(char.codePointAt(0))) return false;
+export function splitByGraphemeCluster(text: string) {
+    const segments = segmenter.segment(text)[Symbol.iterator]();
+    let segment = segments.next();
+    const nextSegments = segmenter.segment(text)[Symbol.iterator]();
+    nextSegments.next();
+    let nextSegment = nextSegments.next();
+
+    const baseSegments = [];
+    while (!segment.done) {
+        const baseSegment = segment;
+        while (!nextSegment.done && canCombineGraphemes(baseSegment.value.segment, nextSegment.value.segment)) {
+            baseSegment.value.segment += nextSegment.value.segment;
+            segment = segments.next();
+            nextSegment = nextSegments.next();
+        }
+        baseSegments.push(baseSegment.value);
+        segment = segments.next();
+        nextSegment = nextSegments.next();
     }
-    return true;
+
+    return baseSegments;
 }
 
 export function allowsVerticalWritingMode(chars: string) {
@@ -24,10 +53,7 @@ export function allowsVerticalWritingMode(chars: string) {
 }
 
 export function allowsLetterSpacing(chars: string) {
-    for (const char of chars) {
-        if (!charAllowsLetterSpacing(char.codePointAt(0))) return false;
-    }
-    return true;
+    return !cursiveScriptRegExp.test(chars);
 }
 
 /**
@@ -42,7 +68,7 @@ function sanitizedRegExpFromScriptCodes(scriptCodes: Array<string>): RegExp {
             return null;
         }
     }).filter(pe => pe);
-    return new RegExp(supportedPropertyEscapes.join('|'), 'u');
+    return new RegExp(`[${supportedPropertyEscapes.join('')}]`, 'u');
 }
 
 /**
@@ -60,10 +86,6 @@ const cursiveScriptCodes = [
 ];
 
 const cursiveScriptRegExp = sanitizedRegExpFromScriptCodes(cursiveScriptCodes);
-
-export function charAllowsLetterSpacing(char: number) {
-    return !cursiveScriptRegExp.test(String.fromCodePoint(char));
-}
 
 /**
  * Returns true if the given Unicode codepoint identifies a character with
@@ -126,11 +148,7 @@ const rtlScriptCodes = [
     'Yezi', // Yezidi
 ];
 
-const rtlScriptRegExp = sanitizedRegExpFromScriptCodes(rtlScriptCodes);
-
-export function charInRTLScript(char: number) {
-    return rtlScriptRegExp.test(String.fromCodePoint(char));
-}
+export const rtlScriptRegExp = sanitizedRegExpFromScriptCodes(rtlScriptCodes);
 
 export function charInSupportedScript(char: number, canRenderRTL: boolean) {
     // This is a rough heuristic: whether we "can render" a script
@@ -140,7 +158,7 @@ export function charInSupportedScript(char: number, canRenderRTL: boolean) {
 
     // Even in Latin script, we "can't render" combinations such as the fi
     // ligature, but we don't consider that semantically significant.
-    if (!canRenderRTL && charInRTLScript(char)) {
+    if (!canRenderRTL && rtlScriptRegExp.test(String.fromCodePoint(char))) {
         return false;
     }
     if (codePointRequiresComplexTextShaping(char)) {
@@ -150,12 +168,7 @@ export function charInSupportedScript(char: number, canRenderRTL: boolean) {
 }
 
 export function stringContainsRTLText(chars: string): boolean {
-    for (const char of chars) {
-        if (charInRTLScript(char.codePointAt(0))) {
-            return true;
-        }
-    }
-    return false;
+    return rtlScriptRegExp.test(chars);
 }
 
 export function isStringInSupportedScript(chars: string, canRenderRTL: boolean) {

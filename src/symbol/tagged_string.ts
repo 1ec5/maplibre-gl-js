@@ -4,7 +4,7 @@ import ONE_EM from './one_em';
 import type {ImagePosition} from '../render/image_atlas';
 import type {StyleGlyph} from '../style/style_glyph';
 import {verticalizePunctuation} from '../util/verticalize_punctuation';
-import {charIsWhitespace} from '../util/script_detection';
+import {charIsWhitespace, segmenter, splitByGraphemeCluster} from '../util/script_detection';
 import {codePointAllowsIdeographicBreaking} from '../util/unicode_properties.g';
 import {warnOnce} from '../util/util';
 
@@ -34,43 +34,27 @@ type Break = {
     badness: number;
 };
 
-// using computed properties due to https://github.com/facebook/flow/issues/380
-/* eslint no-useless-computed-key: 0 */
-
-const breakable: {
-    [_: number]: boolean;
-} = {
-    [0x0a]: true, // newline
-    [0x20]: true, // space
-    [0x26]: true, // ampersand
-    [0x29]: true, // right parenthesis
-    [0x2b]: true, // plus sign
-    [0x2d]: true, // hyphen-minus
-    [0x2f]: true, // solidus
-    [0xad]: true, // soft hyphen
-    [0xb7]: true, // middle dot
-    [0x200b]: true, // zero-width space
-    [0x2010]: true, // hyphen
-    [0x2013]: true, // en dash
-    [0x2027]: true  // interpunct
-    // Many other characters may be reasonable breakpoints
-    // Consider "neutral orientation" characters in codePointHasNeutralVerticalOrientation in unicode_properties
-    // See https://github.com/mapbox/mapbox-gl-js/issues/3658
-};
-
-// Allow breaks depending on the following character
-const breakableBefore: {
-    [_: number]: boolean;
-} = {
-    [0x28]: true, // left parenthesis
+const wordSegmenter = ('Segmenter' in Intl) ? new Intl.Segmenter(undefined, {granularity: 'word'}) : {
+    // Polyfill for Intl.Segmenter with word granularity for the purpose of line breaking
+    segment: (text: String) => {
+        // Prefer breaking on an individual CJKV ideograph instead of keeping the entire run of CJKV together.
+        const segments = text.split(/\b|(?=\p{Ideo})/u).map((segment, index) => ({
+            index,
+            segment,
+        }));
+        return {
+            containing: (index: number) => segments.find(s => s.index <= index && s.index + s.segment.length > index),
+            [Symbol.iterator]: () => segments[Symbol.iterator](),
+        };
+    },
 };
 
 function getGlyphAdvance(
-    codePoint: number,
+    grapheme: string,
     section: SectionOptions,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     imagePositions: {[_: string]: ImagePosition},
@@ -79,7 +63,7 @@ function getGlyphAdvance(
 ): number {
     if ('fontStack' in section) {
         const positions = glyphMap[section.fontStack];
-        const glyph = positions && positions[codePoint];
+        const glyph = positions && positions[grapheme];
         if (!glyph) return 0;
         return glyph.metrics.advance * section.scale + spacing;
     } else {
@@ -106,16 +90,11 @@ function calculateBadness(lineWidth: number,
     return raggedness + Math.abs(penalty) * penalty;
 }
 
-function calculatePenalty(codePoint: number, nextCodePoint: number, penalizableIdeographicBreak: boolean) {
+function calculatePenalty(codePoint: number, nextCodePoint: number) {
     let penalty = 0;
     // Force break on newline
     if (codePoint === 0x0a) {
         penalty -= 10000;
-    }
-    // Penalize breaks between characters that allow ideographic breaking because
-    // they are less preferable than breaks at spaces (or zero width spaces).
-    if (penalizableIdeographicBreak) {
-        penalty += 150;
     }
 
     // Penalize open parenthesis at end of line
@@ -199,7 +178,7 @@ export class TaggedString {
     }
 
     length(): number {
-        return [...this.text].length;
+        return splitByGraphemeCluster(this.text).length;
     }
 
     getSection(index: number): SectionOptions {
@@ -214,16 +193,6 @@ export class TaggedString {
         this.text = verticalizePunctuation(this.text);
     }
 
-    /**
-     * Returns whether the text contains zero-width spaces.
-     *
-     * Some tilesets such as Mapbox Streets insert ZWSPs as hints for line
-     * breaking in CJK text.
-     */
-    hasZeroWidthSpaces(): boolean {
-        return this.text.includes('\u200b');
-    }
-
     trim() {
         const leadingWhitespace = this.text.match(/^\s*/);
         const leadingLength = leadingWhitespace ? leadingWhitespace[0].length : 0;
@@ -235,16 +204,16 @@ export class TaggedString {
     }
 
     substring(start: number, end: number): TaggedString {
-        const text = [...this.text].slice(start, end).join('');
+        const text = splitByGraphemeCluster(this.text).slice(start, end).map(s => s.segment).join('');
         const sectionIndex = this.sectionIndex.slice(start, end);
         return new TaggedString(text, this.sections, sectionIndex);
     }
 
     /**
-     * Converts a UTF-16 character index to a UTF-16 code unit (JavaScript character index).
+     * Converts a grapheme cluster index to a UTF-16 code unit (JavaScript character index).
      */
     toCodeUnitIndex(unicodeIndex: number): number {
-        return [...this.text].slice(0, unicodeIndex).join('').length;
+        return splitByGraphemeCluster(this.text).slice(0, unicodeIndex).map(s => s.segment).join('').length;
     }
 
     toString(): string {
@@ -282,7 +251,7 @@ export class TaggedString {
             fontStack: section.fontStack || defaultFontStack,
         } as TextSectionOptions);
         const index = this.sections.length - 1;
-        this.sectionIndex.push(...[...section.text].map(() => index));
+        this.sectionIndex.push(...splitByGraphemeCluster(section.text).map(() => index));
     }
 
     addImageSection(section: FormattedSection) {
@@ -322,7 +291,7 @@ export class TaggedString {
         maxWidth: number,
         glyphMap: {
             [_: string]: {
-                [_: number]: StyleGlyph;
+                [_: string]: StyleGlyph;
             };
         },
         imagePositions: {[_: string]: ImagePosition},
@@ -331,47 +300,26 @@ export class TaggedString {
         const potentialLineBreaks = [];
         const targetWidth = this.determineAverageLineWidth(spacing, maxWidth, glyphMap, imagePositions, layoutTextSize);
 
-        const hasZeroWidthSpaces = this.hasZeroWidthSpaces();
-
+        const graphemes = splitByGraphemeCluster(this.text);
+        const words = wordSegmenter.segment(this.text);
         let currentX = 0;
-
-        let i = 0;
-        const chars = this.text[Symbol.iterator]();
-        let char = chars.next();
-        const nextChars = this.text[Symbol.iterator]();
-        nextChars.next();
-        let nextChar = nextChars.next();
-        const nextNextChars = this.text[Symbol.iterator]();
-        nextNextChars.next();
-        nextNextChars.next();
-        let nextNextChar = nextNextChars.next();
-
-        while (!char.done) {
-            const section = this.getSection(i);
-            const codePoint = char.value.codePointAt(0);
-            if (!charIsWhitespace(codePoint)) currentX += getGlyphAdvance(codePoint, section, glyphMap, imagePositions, spacing, layoutTextSize);
-
-            // Ideographic characters, spaces, and word-breaking punctuation that often appear without
-            // surrounding spaces.
-            if (!nextChar.done) {
-                const ideographicBreak = codePointAllowsIdeographicBreaking(codePoint);
-                const nextCodePoint = nextChar.value.codePointAt(0);
-                if (breakable[codePoint] || ideographicBreak || 'imageName' in section || (!nextNextChar.done && breakableBefore[nextCodePoint])) {
-
-                    potentialLineBreaks.push(
-                        evaluateBreak(
-                            i + 1,
-                            currentX,
-                            targetWidth,
-                            potentialLineBreaks,
-                            calculatePenalty(codePoint, nextCodePoint, ideographicBreak && hasZeroWidthSpaces),
-                            false));
-                }
+        for (const [i, grapheme] of graphemes.entries()) {
+            // Check whether the grapheme cluster immediately follows a word boundary.
+            const prevWord = words.containing(grapheme.index - 1);
+            const word = words.containing(grapheme.index);
+            if (prevWord && prevWord.index !== word.index) {
+                // Score the line breaking opportunity based on the characters immediately before and after the word boundary.
+                const prevCodePoint = this.text.codePointAt(grapheme.index - 1);
+                const firstCodePoint = grapheme.segment.codePointAt(0);
+                const penalty = calculatePenalty(prevCodePoint, firstCodePoint);
+                const lineBreak = evaluateBreak(i, currentX, targetWidth, potentialLineBreaks, penalty, false);
+                potentialLineBreaks.push(lineBreak);
             }
-            i++;
-            char = chars.next();
-            nextChar = nextChars.next();
-            nextNextChar = nextNextChars.next();
+
+            const section = this.getSection(i);
+            if (grapheme.segment.trim()) {
+                currentX += getGlyphAdvance(grapheme.segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
+            }
         }
 
         return leastBadBreaks(
@@ -389,7 +337,7 @@ export class TaggedString {
         maxWidth: number,
         glyphMap: {
             [_: string]: {
-                [_: number]: StyleGlyph;
+                [_: string]: StyleGlyph;
             };
         },
         imagePositions: {[_: string]: ImagePosition},
@@ -397,9 +345,9 @@ export class TaggedString {
         let totalWidth = 0;
 
         let index = 0;
-        for (const char of this.text) {
+        for (const {segment} of splitByGraphemeCluster(this.text)) {
             const section = this.getSection(index);
-            totalWidth += getGlyphAdvance(char.codePointAt(0), section, glyphMap, imagePositions, spacing, layoutTextSize);
+            totalWidth += getGlyphAdvance(segment, section, glyphMap, imagePositions, spacing, layoutTextSize);
             index++;
         }
 

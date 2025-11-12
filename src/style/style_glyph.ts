@@ -19,7 +19,7 @@ export type GlyphMetrics = {
  * A style glyph type
  */
 export type StyleGlyph = {
-    id: number;
+    grapheme: string;
     bitmap: AlphaImage;
     metrics: GlyphMetrics;
 };

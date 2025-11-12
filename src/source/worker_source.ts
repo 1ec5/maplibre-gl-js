@@ -84,7 +84,7 @@ export type WorkerTileResult = ExpiryData & {
     // Only used for benchmarking:
     glyphMap?: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     } | null;
     iconMap?: {

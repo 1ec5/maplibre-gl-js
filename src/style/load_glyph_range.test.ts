@@ -26,11 +26,12 @@ test('loadGlyphRange', async ()  => {
     expect(transform).toHaveBeenCalledWith('https://localhost/fonts/v1/Arial Unicode MS/0-255.pbf', 'Glyphs');
 
     expect(Object.keys(result)).toHaveLength(223);
-    for (const key in result) {
-        const id = Number(key);
-        const glyph = result[id];
+    for (const grapheme in result) {
+        const glyph = result[grapheme];
 
-        expect(glyph.id).toBe(Number(id));
+        expect(typeof glyph.grapheme).toBe('string');
+        expect(glyph.grapheme).toBe(grapheme);
+        expect([...glyph.grapheme].length).toEqual(1);
         expect(glyph.metrics).toBeTruthy();
         expect(typeof glyph.metrics.width).toBe('number');
         expect(typeof glyph.metrics.height).toBe('number');

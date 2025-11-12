@@ -24,7 +24,7 @@ transform.resize(100, 100);
 
 const stacks = {'Test': glyphs} as any as {
     [_: string]: {
-        [x: number]: StyleGlyph;
+        [x: string]: StyleGlyph;
     };
 };
 
