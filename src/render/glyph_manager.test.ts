@@ -7,7 +7,7 @@ import {type RequestManager} from '../util/request_manager';
 describe('GlyphManager', () => {
     const GLYPHS = {};
     for (const glyph of parseGlyphPbf(fs.readFileSync('./test/unit/assets/0-255.pbf'))) {
-        GLYPHS[glyph.id] = glyph;
+        GLYPHS[glyph.grapheme] = glyph;
     }
 
     const identityTransform = ((url) => ({url})) as any as RequestManager;
@@ -36,22 +36,22 @@ describe('GlyphManager', () => {
         createLoadGlyphRangeStub();
         const manager = createGlyphManager();
 
-        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': [55]});
-        expect(returnedGlyphs['Arial Unicode MS']['55'].metrics.advance).toBe(12);
+        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': ['7']});
+        expect(returnedGlyphs['Arial Unicode MS']['7'].metrics.advance).toBe(12);
     });
 
     test('GlyphManager doesn\'t request twice 0-255 PBF if a glyph is missing', async () => {
         const stub = createLoadGlyphRangeStub();
         const manager = createGlyphManager();
 
-        await manager.getGlyphs({'Arial Unicode MS': [0.5]});
+        await manager.getGlyphs({'Arial Unicode MS': ['\0']});
         expect(manager.entries['Arial Unicode MS'].ranges[0]).toBe(true);
         expect(stub).toHaveBeenCalledTimes(1);
 
         // We remove all requests as in getGlyphs code.
         delete manager.entries['Arial Unicode MS'].requests[0];
 
-        await manager.getGlyphs({'Arial Unicode MS': [0.5]});
+        await manager.getGlyphs({'Arial Unicode MS': ['\0']});
         expect(manager.entries['Arial Unicode MS'].ranges[0]).toBe(true);
         expect(stub).toHaveBeenCalledTimes(1);
     });
@@ -63,8 +63,8 @@ describe('GlyphManager', () => {
 
         const manager = createGlyphManager();
 
-        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': [0x5e73]});
-        expect(returnedGlyphs['Arial Unicode MS'][0x5e73]).toBeNull(); // The fixture returns a PBF without the glyph we requested
+        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': ['平']});
+        expect(returnedGlyphs['Arial Unicode MS']['平']).toBeNull(); // The fixture returns a PBF without the glyph we requested
     });
 
     test('GlyphManager requests remote non-BMP, non-CJK PBF', async () => {
@@ -75,8 +75,8 @@ describe('GlyphManager', () => {
         const manager = createGlyphManager();
 
         // Request Egyptian hieroglyph 𓃰
-        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': [0x1e0f0]});
-        expect(returnedGlyphs['Arial Unicode MS'][0x1e0f0]).toBeNull(); // The fixture returns a PBF without the glyph we requested
+        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': ['𓃰']});
+        expect(returnedGlyphs['Arial Unicode MS']['𓃰']).toBeNull(); // The fixture returns a PBF without the glyph we requested
     });
 
     test('GlyphManager does not cache CJK chars that should be rendered locally', async () => {
@@ -85,6 +85,7 @@ describe('GlyphManager', () => {
             const start = range * 256;
             const end = start + 256;
             for (let i = start, j = 0; i < end; i++, j++) {
+                const grapheme = String.fromCodePoint(i);
                 overlappingGlyphs[i] = GLYPHS[j];
             }
             return Promise.resolve(overlappingGlyphs);
@@ -93,11 +94,11 @@ describe('GlyphManager', () => {
         const manager = createGlyphManager('sans-serif');
 
         //Request char that overlaps Katakana range
-        let returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': [0x3005]});
-        expect(returnedGlyphs['Arial Unicode MS'][0x3005]).not.toBeNull();
+        let returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': ['々']});
+        expect(returnedGlyphs['Arial Unicode MS']['々']).not.toBeNull();
         //Request char from Katakana range (te テ)
-        returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': [0x30C6]});
-        const glyph = returnedGlyphs['Arial Unicode MS'][0x30c6];
+        returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': ['テ']});
+        const glyph = returnedGlyphs['Arial Unicode MS']['テ'];
         //Ensure that te is locally generated.
         expect(glyph.bitmap.height).toBe(12);
         expect(glyph.bitmap.width).toBe(12);
@@ -107,32 +108,32 @@ describe('GlyphManager', () => {
         const manager = createGlyphManager('sans-serif');
 
         // Chinese character píng 平
-        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': [0x5e73]});
-        expect(returnedGlyphs['Arial Unicode MS'][0x5e73].metrics.advance).toBe(0.5);
+        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': ['平']});
+        expect(returnedGlyphs['Arial Unicode MS']['平'].metrics.advance).toBe(0.5);
     });
 
     test('GlyphManager generates non-BMP CJK PBF locally', async () => {
         const manager = createGlyphManager('sans-serif');
 
         // Chinese character biáng 𰻞
-        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': [0x30EDE]});
-        expect(returnedGlyphs['Arial Unicode MS'][0x30EDE].metrics.advance).toBe(1);
+        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': ['𰻞']});
+        expect(returnedGlyphs['Arial Unicode MS']['𰻞'].metrics.advance).toBe(1);
     });
 
     test('GlyphManager generates Katakana PBF locally', async () => {
         const manager = createGlyphManager('sans-serif');
 
         // Katakana letter te テ
-        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': [0x30c6]});
-        expect(returnedGlyphs['Arial Unicode MS'][0x30c6].metrics.advance).toBe(0.5);
+        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': ['テ']});
+        expect(returnedGlyphs['Arial Unicode MS']['テ'].metrics.advance).toBe(0.5);
     });
 
     test('GlyphManager generates Hiragana PBF locally', async () => {
         const manager = createGlyphManager('sans-serif');
 
         //Hiragana letter te て
-        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': [0x3066]});
-        expect(returnedGlyphs['Arial Unicode MS'][0x3066].metrics.advance).toBe(0.5);
+        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': ['て']});
+        expect(returnedGlyphs['Arial Unicode MS']['て'].metrics.advance).toBe(0.5);
     });
 
     test('GlyphManager consistently generates CJKV text locally', async () => {
@@ -180,8 +181,8 @@ describe('GlyphManager', () => {
     test('GlyphManager generates missing PBF locally', async () => {
         const manager = createGlyphManager('sans-serif');
 
-        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': [0x10e1]});
-        expect(returnedGlyphs['Arial Unicode MS'][0x10e1].metrics.advance).toBe(12);
+        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': ['ს']});
+        expect(returnedGlyphs['Arial Unicode MS']['ს'].metrics.advance).toBe(12);
     });
 
     test('GlyphManager caches locally generated glyphs', async () => {
@@ -192,31 +193,31 @@ describe('GlyphManager', () => {
         });
 
         // Katakana letter te
-        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': [0x30c6]});
-        expect(returnedGlyphs['Arial Unicode MS'][0x30c6].metrics.advance).toBe(24);
-        await manager.getGlyphs({'Arial Unicode MS': [0x30c6]});
+        const returnedGlyphs = await manager.getGlyphs({'Arial Unicode MS': ['テ']});
+        expect(returnedGlyphs['Arial Unicode MS']['テ'].metrics.advance).toBe(24);
+        await manager.getGlyphs({'Arial Unicode MS': ['テ']});
         expect(drawSpy).toHaveBeenCalledTimes(1);
     });
 
     test('GlyphManager passes no language to TinySDF by default', async () => {
         const langSpy = GlyphManager.TinySDF = vi.fn().mockImplementation(function () {
             return {
-                draw: () => GLYPHS[0]
+                draw: () => GLYPHS['\0']
             };
         });
         const manager = createGlyphManager('sans-serif');
-        await manager.getGlyphs({'Arial Unicode MS': [0x30c6]});
+        await manager.getGlyphs({'Arial Unicode MS': ['テ']});
         expect(langSpy).toHaveBeenCalledWith(expect.not.objectContaining({lang: expect.anything()}));
     });
 
     test('GlyphManager sets the language on TinySDF', async () => {
         const langSpy = GlyphManager.TinySDF = vi.fn().mockImplementation(function () {
             return {
-                draw: () => GLYPHS[0]
+                draw: () => GLYPHS['\0']
             };
         });
         const manager = createGlyphManager('sans-serif', 'zh');
-        await manager.getGlyphs({'Arial Unicode MS': [0x30c6]});
+        await manager.getGlyphs({'Arial Unicode MS': ['テ']});
         expect(langSpy).toHaveBeenCalledWith(expect.objectContaining({lang: 'zh'}));
     });
 });
