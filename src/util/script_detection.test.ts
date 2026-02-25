@@ -1,5 +1,5 @@
 import {describe, test, expect} from 'vitest';
-import {charIsWhitespace, charAllowsLetterSpacing, charInComplexShapingScript, charInRTLScript} from './script_detection';
+import {allowsLetterSpacing, charIsWhitespace, charInComplexShapingScript, stringContainsRTLText} from './script_detection';
 
 describe('charIsWhitespace', () => {
     test('detects whitespace', () => {
@@ -12,24 +12,24 @@ describe('charIsWhitespace', () => {
     });
 });
 
-describe('charAllowsLetterSpacing', () => {
+describe('allowsLetterSpacing', () => {
     test('allows letter spacing of Latin text', () => {
-        expect(charAllowsLetterSpacing('A'.codePointAt(0))).toBe(true);
+        expect(allowsLetterSpacing('A')).toBe(true);
     });
 
-    test('disallows ideographic breaking of Arabic text', () => {
+    test('disallows letter spacing of Arabic text', () => {
         // Arabic
-        expect(charAllowsLetterSpacing('۳'.codePointAt(0))).toBe(false);
+        expect(allowsLetterSpacing('۳')).toBe(false);
         // Arabic Supplement
-        expect(charAllowsLetterSpacing('ݣ'.codePointAt(0))).toBe(false);
+        expect(allowsLetterSpacing('ݣ')).toBe(false);
         // Arabic Extended-A
-        expect(charAllowsLetterSpacing('ࢳ'.codePointAt(0))).toBe(false);
+        expect(allowsLetterSpacing('ࢳ')).toBe(false);
         // Arabic Extended-B
-        expect(charAllowsLetterSpacing('࢐'.codePointAt(0))).toBe(false);
+        expect(allowsLetterSpacing('࢐')).toBe(false);
         // Arabic Presentation Forms-A
-        expect(charAllowsLetterSpacing('ﰤ'.codePointAt(0))).toBe(false);
+        expect(allowsLetterSpacing('ﰤ')).toBe(false);
         // Arabic Presentation Forms-B
-        expect(charAllowsLetterSpacing('ﺽ'.codePointAt(0))).toBe(false);
+        expect(allowsLetterSpacing('ﺽ')).toBe(false);
     });
 });
 
@@ -52,35 +52,35 @@ describe('charInComplexShapingScript', () => {
     });
 });
 
-describe('charInRTLScript', () => {
+describe('stringContainsRTLText', () => {
     test('does not identify direction-neutral text as right-to-left', () => {
-        expect(charInRTLScript('3'.codePointAt(0))).toBe(false);
+        expect(stringContainsRTLText('3')).toBe(false);
     });
 
     test('identifies Arabic text as right-to-left', () => {
         // Arabic
-        expect(charInRTLScript('۳'.codePointAt(0))).toBe(true);
+        expect(stringContainsRTLText('۳')).toBe(true);
         // Arabic Supplement
-        expect(charInRTLScript('ݣ'.codePointAt(0))).toBe(true);
+        expect(stringContainsRTLText('ݣ')).toBe(true);
         // Arabic Extended-A
-        expect(charInRTLScript('ࢳ'.codePointAt(0))).toBe(true);
+        expect(stringContainsRTLText('ࢳ')).toBe(true);
         // Arabic Extended-B
-        expect(charInRTLScript('࢐'.codePointAt(0))).toBe(true);
+        expect(stringContainsRTLText('࢐')).toBe(true);
         // Arabic Presentation Forms-A
-        expect(charInRTLScript('ﰤ'.codePointAt(0))).toBe(true);
+        expect(stringContainsRTLText('ﰤ')).toBe(true);
         // Arabic Presentation Forms-B
-        expect(charInRTLScript('ﺽ'.codePointAt(0))).toBe(true);
+        expect(stringContainsRTLText('ﺽ')).toBe(true);
     });
 
     test('identifies Hebrew text as right-to-left', () => {
         // Hebrew
-        expect(charInRTLScript('ה'.codePointAt(0))).toBe(true);
+        expect(stringContainsRTLText('ה')).toBe(true);
         // Alphabetic Presentation Forms
-        expect(charInRTLScript('ﬡ'.codePointAt(0))).toBe(true);
+        expect(stringContainsRTLText('ﬡ')).toBe(true);
     });
 
     test('identifies Thaana text as right-to-left', () => {
         // Thaana
-        expect(charInRTLScript('ޘ'.codePointAt(0))).toBe(true);
+        expect(stringContainsRTLText('ޘ')).toBe(true);
     });
 });

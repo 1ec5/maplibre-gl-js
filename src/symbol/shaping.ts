@@ -3,7 +3,10 @@ import {
 } from '../util/unicode_properties.g';
 import {
     charIsWhitespace,
-    charInComplexShapingScript
+    charInComplexShapingScript,
+    segmenter,
+    rtlScriptRegExp,
+    splitByGraphemeCluster
 } from '../util/script_detection';
 import {rtlWorkerPlugin} from '../source/rtl_text_plugin_worker';
 import ONE_EM from './one_em';
@@ -24,12 +27,12 @@ enum WritingMode {
     horizontalOnly = 3
 }
 
-const SHAPING_DEFAULT_OFFSET = -17;
+const SHAPING_DEFAULT_OFFSET = 0;
 export {shapeText, shapeIcon, applyTextFit, fitIconToText, getAnchorAlignment, WritingMode, SHAPING_DEFAULT_OFFSET};
 
 // The position of a glyph relative to the text's anchor point.
 export type PositionedGlyph = {
-    glyph: number;
+    glyph: string;
     imageName: string | null;
     x: number;
     y: number;
@@ -80,6 +83,8 @@ function isEmpty(positionedLines: Array<PositionedLine>) {
     return true;
 }
 
+const rtlCombiningMarkRegExp = new RegExp(`(${rtlScriptRegExp.source})([\\p{gc=Mn}\\p{gc=Mc}])`, 'gu');
+
 export type SymbolAnchor = 'center' | 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 export type TextJustify = 'left' | 'center' | 'right';
 
@@ -101,7 +106,7 @@ function shapeText(
     text: Formatted,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     glyphPositions: {
@@ -131,43 +136,70 @@ function shapeText(
     let lines: Array<TaggedString>;
 
     let lineBreaks = logicalInput.determineLineBreaks(spacing, maxWidth, glyphMap, imagePositions, layoutTextSize);
+
+    /// Prepares a string as input to the RTL plugin.
+    const stripMarker = '\uF8FF';
+    const prepareBidiInput = string => string
+        // Replace zero-width joiners with temporary strip markers (from the Private Use Area) to prevent ICU from stripping them out.
+        .replace(/\u200D/g, stripMarker)
+        // Preemptively swap combining marks with the characters they modify so they remain in logical order.
+        .replace(rtlCombiningMarkRegExp, '$2$1');
+
+    /// Prepares a line break array as input to the RTL plugin.
+    const adjustLineBreaks = () => {
+        const graphemes = splitByGraphemeCluster(logicalInput.toString());
+        // ICU operates on code units.
+        lineBreaks = lineBreaks
+            // Get the length of the prefix leading up to each code unit.
+            .map(index => graphemes.slice(0, index).map(s => s.segment).join('').length);
+    };
+
+    /// Converts a line of output from the RTL plugin into a tagged string, except for `sectionIndex`.
+    const taggedLineFromBidi = (line) => {
+        // Restore zero-width joiners from temporary strip markers.
+        const unstrippedLine = line.replaceAll(stripMarker, '\u200D');
+        return new TaggedString(unstrippedLine, logicalInput.sections, []);
+    };
+
     const {processBidirectionalText, processStyledBidirectionalText} = rtlWorkerPlugin;
     if (processBidirectionalText && logicalInput.sections.length === 1) {
         // Bidi doesn't have to be style-aware
         lines = [];
-        // ICU operates on code units.
-        lineBreaks = lineBreaks.map(index => logicalInput.toCodeUnitIndex(index));
+        const markedInput = prepareBidiInput(logicalInput.toString());
+        adjustLineBreaks();
         const untaggedLines =
-            processBidirectionalText(logicalInput.toString(), lineBreaks);
+            processBidirectionalText(markedInput, lineBreaks);
         for (const line of untaggedLines) {
-            const sectionIndex = [...line].map(() => 0);
-            lines.push(new TaggedString(line, logicalInput.sections, sectionIndex));
+            const taggedLine = taggedLineFromBidi(line);
+            taggedLine.sections = logicalInput.sections;
+            taggedLine.sectionIndex.push(...Array(splitByGraphemeCluster(taggedLine.text).length).fill(0));
+            lines.push(taggedLine);
         }
     } else if (processStyledBidirectionalText) {
         // Need version of mapbox-gl-rtl-text with style support for combining RTL text
         // with formatting
         lines = [];
-        // ICU operates on code units.
-        lineBreaks = lineBreaks.map(index => logicalInput.toCodeUnitIndex(index));
+        const markedInput = prepareBidiInput(logicalInput.toString());
 
-        // Convert character-based section index to be based on code units.
+        // Convert grapheme cluster–based section index to be based on code units.
         let i = 0;
         const sectionIndex = [];
-        for (const char of logicalInput.text) {
-            sectionIndex.push(...Array(char.length).fill(logicalInput.sectionIndex[i]));
+        for (const {segment} of splitByGraphemeCluster(markedInput)) {
+            sectionIndex.push(...Array(segment.length).fill(logicalInput.sectionIndex[i]));
             i++;
         }
 
+        adjustLineBreaks();
         const processedLines =
-            processStyledBidirectionalText(logicalInput.text, sectionIndex, lineBreaks);
+            processStyledBidirectionalText(markedInput, sectionIndex, lineBreaks);
         for (const line of processedLines) {
-            const sectionIndex = [];
-            let elapsedChars = '';
-            for (const char of line[0]) {
-                sectionIndex.push(line[1][elapsedChars.length]);
-                elapsedChars += char;
+            const taggedLine = taggedLineFromBidi(line[0]);
+            let i = 0;
+            for (const {segment} of splitByGraphemeCluster(taggedLine.text)) {
+                taggedLine.sectionIndex.push(line[1][i]);
+                i += segment.length;
             }
-            lines.push(new TaggedString(line[0], logicalInput.sections, sectionIndex));
+            lines.push(taggedLine);
         }
     } else {
         lines = breakLines(logicalInput, lineBreaks);
@@ -255,18 +287,18 @@ function getRectAndMetrics(
     glyphPosition: GlyphPosition,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     section: TextSectionOptions,
-    codePoint: number
+    segment: string
 ): GlyphPosition | null {
     if (glyphPosition && glyphPosition.rect) {
         return glyphPosition;
     }
 
     const glyphs = glyphMap[section.fontStack];
-    const glyph = glyphs && glyphs[codePoint];
+    const glyph = glyphs && glyphs[segment];
     if (!glyph) return null;
 
     const metrics = glyph.metrics;
@@ -289,7 +321,7 @@ function isLineVertical(
 function shapeLines(shaping: Shaping,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     glyphPositions: {
@@ -337,12 +369,12 @@ function shapeLines(shaping: Shaping,
         const lineShapingSize = calculateLineContentSize(imagePositions, line, layoutTextSizeFactor);
 
         let i = 0;
-        for (const char of line.text) {
+        for (const {segment} of splitByGraphemeCluster(line.text)) {
             const section = line.getSection(i);
-            const codePoint = char.codePointAt(0);
+            const codePoint = segment.codePointAt(0);
             const vertical = isLineVertical(writingMode, allowVerticalPlacement, codePoint);
             const positionedGlyph: PositionedGlyph = {
-                glyph: codePoint,
+                glyph: segment,
                 imageName: null,
                 x,
                 y: y + SHAPING_DEFAULT_OFFSET,
@@ -356,7 +388,7 @@ function shapeLines(shaping: Shaping,
 
             let sectionAttributes: ShapingSectionAttributes;
             if ('fontStack' in section) {
-                sectionAttributes = shapeTextSection(section, codePoint, vertical, lineShapingSize, glyphMap, glyphPositions);
+                sectionAttributes = shapeTextSection(section, segment, vertical, lineShapingSize, glyphMap, glyphPositions);
                 if (!sectionAttributes) continue;
                 positionedGlyph.fontStack = section.fontStack;
             } else {
@@ -420,12 +452,12 @@ function shapeLines(shaping: Shaping,
 
 function shapeTextSection(
     section: TextSectionOptions,
-    codePoint: number,
+    segment: string,
     vertical: boolean,
     lineShapingSize: LineShapingSize,
     glyphMap: {
         [_: string]: {
-            [_: number]: StyleGlyph;
+            [_: string]: StyleGlyph;
         };
     },
     glyphPositions: {
@@ -435,9 +467,9 @@ function shapeTextSection(
     },
 ): ShapingSectionAttributes | null {
     const positions = glyphPositions[section.fontStack];
-    const glyphPosition = positions && positions[codePoint];
+    const glyphPosition = positions && positions[segment];
 
-    const rectAndMetrics = getRectAndMetrics(glyphPosition, glyphMap, section, codePoint);
+    const rectAndMetrics = getRectAndMetrics(glyphPosition, glyphMap, section, segment);
 
     if (rectAndMetrics === null) return null;
 
